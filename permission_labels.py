@@ -1,0 +1,82 @@
+"""Chinese display names for common Android platform permissions.
+
+Permission identifiers remain visible in the UI because device vendors and
+individual apps can define additional permissions with different meanings.
+"""
+
+ANDROID_PERMISSION_LABELS = {
+    "ACCEPT_HANDOVER": "接续通话",
+    "ACCESS_BACKGROUND_LOCATION": "后台访问位置信息",
+    "ACCESS_COARSE_LOCATION": "获取大致位置信息",
+    "ACCESS_FINE_LOCATION": "获取精确位置信息",
+    "ACCESS_LOCATION_EXTRA_COMMANDS": "访问额外位置命令",
+    "ACCESS_MEDIA_LOCATION": "读取照片中的位置信息",
+    "ACCESS_NETWORK_STATE": "查看网络连接状态",
+    "ACCESS_WIFI_STATE": "查看 Wi-Fi 状态",
+    "ACTIVITY_RECOGNITION": "识别身体活动",
+    "ANSWER_PHONE_CALLS": "接听电话",
+    "BLUETOOTH": "使用蓝牙",
+    "BLUETOOTH_ADMIN": "管理蓝牙",
+    "BLUETOOTH_ADVERTISE": "蓝牙广播",
+    "BLUETOOTH_CONNECT": "连接蓝牙设备",
+    "BLUETOOTH_SCAN": "扫描蓝牙设备",
+    "BODY_SENSORS": "读取身体传感器数据",
+    "BODY_SENSORS_BACKGROUND": "后台读取身体传感器数据",
+    "CALL_PHONE": "拨打电话",
+    "CAMERA": "使用相机",
+    "CHANGE_NETWORK_STATE": "更改网络连接状态",
+    "CHANGE_WIFI_STATE": "更改 Wi-Fi 状态",
+    "DOWNLOAD_WITHOUT_NOTIFICATION": "下载时不显示通知",
+    "FOREGROUND_SERVICE": "运行前台服务",
+    "FOREGROUND_SERVICE_CAMERA": "相机前台服务",
+    "FOREGROUND_SERVICE_CONNECTED_DEVICE": "连接设备前台服务",
+    "FOREGROUND_SERVICE_DATA_SYNC": "数据同步前台服务",
+    "FOREGROUND_SERVICE_LOCATION": "位置前台服务",
+    "FOREGROUND_SERVICE_MEDIA_PLAYBACK": "媒体播放前台服务",
+    "FOREGROUND_SERVICE_MEDIA_PROJECTION": "屏幕捕获前台服务",
+    "FOREGROUND_SERVICE_MICROPHONE": "麦克风前台服务",
+    "GET_ACCOUNTS": "读取设备账户",
+    "INSTALL_PACKAGES": "安装应用",
+    "INTERNET": "访问网络",
+    "MANAGE_EXTERNAL_STORAGE": "管理所有文件",
+    "MODIFY_AUDIO_SETTINGS": "修改音频设置",
+    "NEARBY_WIFI_DEVICES": "访问附近的 Wi-Fi 设备",
+    "POST_NOTIFICATIONS": "发送通知",
+    "QUERY_ALL_PACKAGES": "查询所有已安装应用",
+    "READ_CALENDAR": "读取日历",
+    "READ_CALL_LOG": "读取通话记录",
+    "READ_CONTACTS": "读取联系人",
+    "READ_EXTERNAL_STORAGE": "读取共享存储空间",
+    "READ_LOGS": "读取系统日志",
+    "READ_MEDIA_AUDIO": "读取音频文件",
+    "READ_MEDIA_IMAGES": "读取图片",
+    "READ_MEDIA_VIDEO": "读取视频",
+    "READ_MEDIA_VISUAL_USER_SELECTED": "读取用户选中的图片和视频",
+    "READ_PHONE_NUMBERS": "读取电话号码",
+    "READ_PHONE_STATE": "读取电话状态",
+    "READ_PRIVILEGED_PHONE_STATE": "读取特权电话状态",
+    "READ_SMS": "读取短信",
+    "RECEIVE_BOOT_COMPLETED": "开机后启动",
+    "RECEIVE_MMS": "接收彩信",
+    "RECEIVE_SMS": "接收短信",
+    "RECORD_AUDIO": "录制音频",
+    "REORDER_TASKS": "调整应用任务顺序",
+    "REQUEST_INSTALL_PACKAGES": "请求安装其他应用",
+    "SEND_SMS": "发送短信",
+    "SYSTEM_ALERT_WINDOW": "显示悬浮窗",
+    "USE_BIOMETRIC": "使用生物识别",
+    "USE_FINGERPRINT": "使用指纹识别",
+    "VIBRATE": "控制振动",
+    "WAKE_LOCK": "阻止设备休眠",
+    "WRITE_CALENDAR": "修改日历",
+    "WRITE_CALL_LOG": "修改通话记录",
+    "WRITE_CONTACTS": "修改联系人",
+    "WRITE_EXTERNAL_STORAGE": "写入共享存储空间",
+}
+
+
+def permission_label(identifier: str) -> str:
+    prefix = "android.permission."
+    if identifier.startswith(prefix):
+        return ANDROID_PERMISSION_LABELS.get(identifier[len(prefix):], "")
+    return ""

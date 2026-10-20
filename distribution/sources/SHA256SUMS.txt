@@ -1,0 +1,4 @@
+d9594a31228aa23ad6b531719a29b45f0f3989fe6c136d45767ea179f233c1ac  qtbase-everywhere-src-6.11.1.tar.xz
+7f3cf02f4824bf03c2c5859ea6db173bf1482a1daf24e6cdf7bc78cfa26a8a94  qtsvg-everywhere-src-6.11.1.tar.xz
+b2bf6c6845ac175ed7f819145483ba4676f617aaa6a5012c8efee63c8bbac413  qtimageformats-everywhere-src-6.11.1.tar.xz
+6ffd9835bb0dd2c56f061d62f1616bb1707cfc0202b80e3165d6be087f3965e2  pyside-setup-everywhere-src-6.11.1.tar.xz

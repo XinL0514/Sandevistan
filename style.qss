@@ -1,0 +1,481 @@
+/* Style sheet for Sandevistan ADB.
+ *
+ * Placeholders such as @TEXT are substituted from theme.py by
+ * load_stylesheet(), so colours and metrics are defined in one place.
+ */
+
+QWidget {
+    background: transparent;
+    color: @TEXT;
+    font-family: @FONT_FAMILY;
+    font-size: @FONT_SIZE_BODYpt;
+}
+
+QMainWindow, QWidget#workspace {
+    background: @BACKGROUND;
+}
+
+QDialog#targetsDialog, QDialog#wifiDialog,
+QDialog#appMessageDialog, QDialog#appToolDialog {
+    background: @BACKGROUND;
+}
+
+/* --- Sidebar ----------------------------------------------------------- */
+
+QWidget#sidebar {
+    background: @SIDEBAR;
+}
+
+QLabel#brandName {
+    color: #FFFFFF;
+    font-size: 11pt;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+QLabel#brandSub {
+    color: @SIDEBAR_MUTED;
+    font-size: 9pt;
+}
+
+QLabel#sidebarSection {
+    color: @SIDEBAR_MUTED;
+    font-size: 9pt;
+    font-weight: 600;
+    letter-spacing: 1px;
+    padding: 0 8px;
+}
+
+QPushButton#navButton {
+    background: transparent;
+    border: none;
+    border-radius: @RADIUS_CONTROL;
+    color: @SIDEBAR_TEXT;
+    font-size: 11pt;
+    font-weight: 500;
+    padding: 9px 12px;
+    text-align: left;
+}
+
+QPushButton#navButton:hover {
+    background: @SIDEBAR_HOVER;
+    color: #FFFFFF;
+}
+
+QPushButton#navButton:checked {
+    background: @SIDEBAR_ACTIVE;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+/* --- Page header ------------------------------------------------------- */
+
+QLabel#pageTitle {
+    font-size: @FONT_SIZE_TITLEpt;
+    font-weight: 600;
+    color: @TEXT;
+}
+
+QLabel#pageSubtitle {
+    font-size: @FONT_SIZE_BODYpt;
+    color: @TEXT_MUTED;
+}
+
+QLabel#cardTitle {
+    font-size: @FONT_SIZE_SUBTITLEpt;
+    font-weight: 600;
+    color: @TEXT;
+}
+
+QLabel#cardDescription {
+    font-size: @FONT_SIZE_SMALLpt;
+    color: @TEXT_MUTED;
+}
+
+QLabel#metricValue {
+    color: @TEXT;
+    font-size: 20pt;
+    font-weight: 600;
+}
+
+QLabel#messageText {
+    font-size: @FONT_SIZE_BODYpt;
+    color: @TEXT;
+}
+
+QLabel#fieldLabel {
+    font-size: @FONT_SIZE_SMALLpt;
+    font-weight: 600;
+    color: @TEXT_MUTED;
+}
+
+QLabel#hint {
+    font-size: @FONT_SIZE_SMALLpt;
+    color: @TEXT_MUTED;
+}
+
+QLabel#accent {
+    color: @PRIMARY_TEXT;
+    font-size: @FONT_SIZE_SMALLpt;
+    font-weight: 600;
+}
+
+/* --- Card -------------------------------------------------------------- */
+
+QFrame#card {
+    background: @SURFACE;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CARD;
+}
+
+QFrame#cardPlain {
+    background: @SURFACE;
+    border-radius: @RADIUS_CARD;
+}
+
+QFrame#targetDeviceRow {
+    background: @SURFACE_SUNKEN;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CONTROL;
+}
+
+QFrame#divider {
+    background: @BORDER;
+    border: none;
+    max-height: 1px;
+    min-height: 1px;
+}
+
+/* A tinted strip used to summarise what an action will affect. */
+
+QFrame#summary {
+    background: @PRIMARY_SOFT;
+    border: 1px solid @PRIMARY_SOFT;
+    border-radius: @RADIUS_CONTROL;
+}
+
+QLabel#summaryTitle {
+    color: @TEXT;
+    font-size: @FONT_SIZE_BODYpt;
+    font-weight: 600;
+}
+
+/* --- Buttons ----------------------------------------------------------- */
+
+QPushButton {
+    background: @SURFACE;
+    border: 1px solid @BORDER_STRONG;
+    border-radius: @RADIUS_CONTROL;
+    color: @TEXT;
+    font-size: @FONT_SIZE_BODYpt;
+    font-weight: 500;
+    padding: 0 14px;
+    min-height: @BUTTON_HEIGHTpx;
+}
+
+QPushButton:hover {
+    background: @HOVER;
+    border-color: @BORDER_STRONG;
+}
+
+QPushButton:pressed {
+    background: @BORDER;
+}
+
+QPushButton[variant="primary"] {
+    background: @PRIMARY;
+    border: 1px solid @PRIMARY;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+QPushButton[variant="primary"]:hover {
+    background: @PRIMARY_HOVER;
+    border-color: @PRIMARY_HOVER;
+}
+
+QPushButton[variant="primary"]:pressed {
+    background: @PRIMARY_PRESSED;
+    border-color: @PRIMARY_PRESSED;
+}
+
+QPushButton[variant="danger"] {
+    background: @SURFACE;
+    border: 1px solid @DANGER;
+    color: @DANGER;
+    font-weight: 600;
+}
+
+QPushButton[variant="danger"]:hover {
+    background: @DANGER_HOVER;
+    border-color: @DANGER_HOVER;
+    color: #FFFFFF;
+}
+
+QPushButton[variant="danger"]:pressed {
+    background: @DANGER_PRESSED;
+    border-color: @DANGER_PRESSED;
+    color: #FFFFFF;
+}
+
+QPushButton[variant="ghost"] {
+    background: transparent;
+    border: 1px solid transparent;
+    color: @TEXT_MUTED;
+}
+
+QPushButton[variant="ghost"]:hover {
+    background: @HOVER;
+    color: @TEXT;
+}
+
+QPushButton:disabled {
+    background: @HOVER;
+    border-color: @BORDER;
+    color: @TEXT_DISABLED;
+}
+
+/* --- Inputs ------------------------------------------------------------ */
+
+QLineEdit, QComboBox, QSpinBox {
+    background: @SURFACE;
+    border: 1px solid @BORDER_STRONG;
+    border-radius: @RADIUS_CONTROL;
+    color: @TEXT;
+    padding: 0 10px;
+    min-height: @CONTROL_HEIGHTpx;
+    selection-background-color: @PRIMARY_SOFT;
+    selection-color: @TEXT;
+}
+
+QLineEdit:hover, QComboBox:hover {
+    border-color: @BORDER_STRONG;
+}
+
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+    border: 1px solid @BORDER_FOCUS;
+}
+
+QLineEdit:disabled, QComboBox:disabled {
+    background: @HOVER;
+    color: @TEXT_DISABLED;
+    border-color: @BORDER;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QComboBox QAbstractItemView {
+    background: @SURFACE;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CONTROL;
+    outline: none;
+    padding: 4px;
+    selection-background-color: @PRIMARY_SOFT;
+    selection-color: @TEXT;
+}
+
+QCheckBox {
+    color: @TEXT;
+    font-size: @FONT_SIZE_BODYpt;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid @BORDER_STRONG;
+    border-radius: 4px;
+    background: @SURFACE;
+}
+
+QCheckBox::indicator:hover {
+    border-color: @PRIMARY;
+}
+
+QCheckBox::indicator:checked {
+    background: @PRIMARY;
+    border-color: @PRIMARY;
+    image: @CHECK_ICON_URL;
+}
+
+/* --- Tables ------------------------------------------------------------ */
+
+QTreeWidget, QListWidget {
+    background: @SURFACE;
+    border: none;
+    outline: none;
+    font-size: @FONT_SIZE_BODYpt;
+}
+
+QTreeWidget::item, QListWidget::item {
+    border: none;
+    min-height: @ROW_HEIGHTpx;
+    color: @TEXT;
+}
+
+QTreeWidget::item:hover, QListWidget::item:hover {
+    background: @SURFACE_SUNKEN;
+}
+
+QTreeWidget::item:selected, QListWidget::item:selected {
+    background: @PRIMARY_SOFT;
+    color: @TEXT;
+}
+
+QHeaderView::section {
+    background: @SURFACE;
+    border: none;
+    border-bottom: 1px solid @BORDER;
+    color: @TEXT_MUTED;
+    font-size: @FONT_SIZE_SMALLpt;
+    font-weight: 600;
+    padding: 8px 10px;
+    text-align: left;
+}
+
+QHeaderView::section:hover {
+    color: @TEXT;
+}
+
+QTableCornerButton::section {
+    background: @SURFACE;
+    border: none;
+}
+
+/* --- Log --------------------------------------------------------------- */
+
+QPlainTextEdit#logView {
+    background: @SURFACE_SUNKEN;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CONTROL;
+    color: @TEXT_MUTED;
+    font-family: @FONT_MONO;
+    font-size: 10pt;
+    padding: 8px;
+    selection-background-color: @PRIMARY_SOFT;
+    selection-color: @TEXT;
+}
+
+QPlainTextEdit#logcatView {
+    background: @SURFACE_SUNKEN;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CONTROL;
+    color: @TEXT;
+    font-family: @FONT_MONO;
+    font-size: 10pt;
+    padding: 8px;
+    selection-background-color: @PRIMARY_SOFT;
+    selection-color: @TEXT;
+}
+
+QPlainTextEdit#reportText {
+    background: @SURFACE_SUNKEN;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CONTROL;
+    color: @TEXT;
+    font-family: @FONT_MONO;
+    font-size: 10pt;
+    padding: 8px;
+}
+
+/* --- Dart network inspector ------------------------------------------- */
+
+QSplitter#networkSplitter::handle {
+    background: @BORDER;
+}
+
+QTabWidget#networkTabs::pane {
+    background: @SURFACE;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CONTROL;
+}
+
+QTabWidget#networkTabs QTabBar::tab {
+    background: @SURFACE_SUNKEN;
+    color: @TEXT_MUTED;
+    border: 1px solid @BORDER;
+    padding: 8px 12px;
+}
+
+QTabWidget#networkTabs QTabBar::tab:selected {
+    background: @SURFACE;
+    color: @PRIMARY_TEXT;
+    border-bottom-color: @SURFACE;
+}
+
+QPlainTextEdit#networkDetailText {
+    background: @SURFACE;
+    border: none;
+    color: @TEXT;
+    font-family: @FONT_MONO;
+    font-size: 10pt;
+    padding: 12px;
+    selection-background-color: @PRIMARY_SOFT;
+    selection-color: @TEXT;
+}
+
+/* --- Scrollbars -------------------------------------------------------- */
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical {
+    background: @BORDER_STRONG;
+    border-radius: 3px;
+    min-height: 32px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: @TEXT_DISABLED;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 2px;
+}
+
+QScrollBar::handle:horizontal {
+    background: @BORDER_STRONG;
+    border-radius: 3px;
+    min-width: 32px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: @TEXT_DISABLED;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0;
+    height: 0;
+    background: none;
+    border: none;
+}
+
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
+}
+
+/* --- Page scrolling ---------------------------------------------------- */
+
+QScrollArea, QScrollArea > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
+
+/* --- Tooltips ---------------------------------------------------------- */
+
+QToolTip {
+    background: @SIDEBAR;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: @FONT_SIZE_SMALLpt;
+}

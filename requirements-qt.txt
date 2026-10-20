@@ -1,0 +1,3 @@
+PySide6==6.11.1
+qtawesome==1.4.2
+QtPy==2.4.3
