@@ -28,4 +28,4 @@ Tests use the standard-library `unittest` framework and `unittest.mock`; name ne
 
 ## Commit & Pull Request Guidelines
 
-This repository has no commits yet, so no historical commit format is established. Use short, imperative subjects that describe the change, such as `Handle offline devices during install`. Pull requests should explain user-visible behavior, list tests run, link relevant issues, and include screenshots for UI changes. For packaging changes, report bundle verification and any license or source-archive updates.
+The history currently contains only an initial commit, so no recurring commit format is established. Use short, imperative subjects that describe the change, such as `Handle offline devices during install`. Pull requests should explain user-visible behavior, list tests run, link relevant issues, and include screenshots for UI changes. For packaging changes, report bundle verification and any license or source-archive updates.

@@ -12,6 +12,7 @@
 | QtAwesome | 1.4.2 | MIT | `QtAwesome-1.4.2-MIT.txt` |
 | QtPy | 2.4.3 | MIT | `QtPy-2.4.3-MIT.txt` |
 | Font Awesome Free | 6.7.2 solid 字体及字形表 | 字体为 SIL OFL 1.1；其他随包文件按原项目声明 | `FontAwesome-6-LICENSE.txt` |
+| Android SDK Platform-Tools | 随包提供 `adb`；Windows 包另含其配套 DLL；版本见 `platform-tools/source.properties` | 见原发行包声明 | `platform-tools/NOTICE.txt`、`platform-tools/source.properties` |
 
 Qt 与 PySide6 的版权归 The Qt Company 和各贡献者所有。你可以依 LGPLv3
 使用、修改和替换这些库；本应用不得限制为调试库的修改而进行的逆向分析。
@@ -24,6 +25,7 @@ Qt 的第三方组件及其许可按对应版本的
 Font Awesome Free：Copyright © Fonticons, Inc.；保留字体名称
 “Font Awesome”。原项目许可正文已随包提供。
 
-本应用使用的 `adb` 由使用者另外安装；它不包含在本应用包内。
+随包的 `adb` 来自 Android SDK Platform-Tools；对应原始版权和许可声明
+保留在 `licenses/platform-tools/NOTICE.txt`。
 PyInstaller 用于生成应用包，其官方许可例外允许分发所生成的商业应用包，
 并不要求应用附带 PyInstaller 的许可文件。

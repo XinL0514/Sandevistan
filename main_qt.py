@@ -28,13 +28,16 @@ from pathlib import Path
 from typing import Callable
 
 import qtawesome as qta
-from PySide6.QtCore import QProcess, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QSyntaxHighlighter, QTextCharFormat, QTextCursor
+from PySide6.QtCore import QProcess, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import (
+    QColor, QDesktopServices, QIcon, QImageReader, QPainter, QPainterPath,
+    QPen, QPixmap, QSyntaxHighlighter, QTextCharFormat, QTextCursor,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox,
     QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QLayout, QMainWindow,
-    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QStackedWidget,
     QTabWidget,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
@@ -42,13 +45,15 @@ from PySide6.QtWidgets import (
 import theme
 from adb_client import (
     AdbClient, AdbError, AppPermission, AppProcessReport, Device,
-    apk_package_name, install_flags, validate_package_name,
+    apk_package_name, install_flags, monkey_arguments, monkey_result,
+    validate_package_name,
 )
+from device_info import DeviceInfo, UNKNOWN, parse_device_info
 from permission_labels import permission_label
 from dart_network import DartNetworkError, DartNetworkSession, request_key
 from logcat_tools import LOGCAT_BUFFERS, logcat_matches, parse_logcat_line
 from performance_tools import PerformanceSample, cpu_percent, fps_from_frames
-from screenshot_history import ScreenshotHistory, reveal_in_finder
+from screenshot_history import ScreenshotHistory, reveal_in_file_manager
 
 
 # --- Qt plugin bootstrap -------------------------------------------------
@@ -182,6 +187,28 @@ def label(text: str, name: str | None = None) -> QLabel:
     return widget
 
 
+class ElidedLabel(QLabel):
+    """Keep the full message in the tooltip while fitting the available width."""
+
+    def __init__(self, text: str = "") -> None:
+        super().__init__()
+        self.full_text = ""
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self.full_text = text
+        self.setToolTip(text)
+        self._update_display()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_display()
+
+    def _update_display(self) -> None:
+        super().setText(self.fontMetrics().elidedText(
+            self.full_text, Qt.ElideRight, max(0, self.width())))
+
+
 def icon_button(text: str, icon_name: str | None = None, *,
                 variant: str = "", color: str | None = None) -> QPushButton:
     button = QPushButton(text)
@@ -248,6 +275,17 @@ class Card(QFrame):
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(padding, padding, padding, padding)
         self.body.setSpacing(spacing)
+
+
+def header_actions(*buttons: QPushButton) -> QWidget:
+    """Keep a page's primary actions aligned with its title."""
+    container = QWidget()
+    row = QHBoxLayout(container)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(theme.SPACE_2)
+    for button in buttons:
+        row.addWidget(button)
+    return container
 
 
 class AppMessageBox(QDialog):
@@ -329,19 +367,98 @@ class AppsPage(QWidget):
         super().__init__()
         self.window = window
         self._package_device_serial: str | None = None
+        self.monkey_process: QProcess | None = None
+        self.monkey_serial: str | None = None
+        self.monkey_stopping = False
+        self.monkey_decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self.monkey_output_tail = ""
+        self.monkey_requested = 0
+        self.install_lock = threading.Lock()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_6)
+        layout.setContentsMargins(theme.SPACE_5, 0,
+                                  theme.SPACE_5, theme.SPACE_3)
+        layout.setSpacing(theme.SPACE_3)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(theme.SPACE_4)
-        columns.addWidget(self._install_card(), 3)
-        columns.addWidget(self._packages_card(), 2)
-        layout.addLayout(columns, 1)
+        layout.addLayout(self._apps_toolbar())
 
+        workspace = QFrame()
+        workspace.setObjectName("appsWorkspace")
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(
+            theme.BORDER_WIDTH, theme.BORDER_WIDTH,
+            theme.BORDER_WIDTH, theme.BORDER_WIDTH)
+        workspace_layout.setSpacing(0)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setObjectName("appsSplitter")
+        splitter.setHandleWidth(theme.BORDER_WIDTH)
+        splitter.setChildrenCollapsible(False)
+        packages = self._packages_card()
+        packages.setMinimumWidth(theme.APPS_LIST_MIN_WIDTH)
+        splitter.addWidget(packages)
         self.tools_card = self._tools_card()
-        layout.addWidget(self.tools_card)
-        layout.addWidget(self._log_card(), 0)
+        details = QScrollArea()
+        details.setObjectName("appsDetailsScroll")
+        details.setMinimumWidth(theme.APPS_DETAILS_MIN_WIDTH)
+        details.setWidgetResizable(True)
+        details.setFrameShape(QFrame.NoFrame)
+        details.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        details.setWidget(self.tools_card)
+        splitter.addWidget(details)
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([380, 560])
+        workspace_layout.addWidget(splitter)
+        layout.addWidget(workspace, 1)
+
+        self.install_dialog = self._apps_dialog("安装 APK", self._install_card())
+        self.monkey_dialog = self._apps_dialog("Monkey 测试", self._monkey_card())
+
+    def _apps_toolbar(self) -> QHBoxLayout:
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(theme.SPACE_2)
+        self.package_type = QComboBox()
+        self.package_type.addItem("第三方应用", "user")
+        self.package_type.addItem("系统应用", "system")
+        self.package_type.currentIndexChanged.connect(self._package_type_changed)
+        toolbar.addWidget(self.package_type)
+        self.package_search = QLineEdit()
+        self.package_search.setPlaceholderText("搜索应用包名")
+        self.package_search.setMaximumWidth(theme.APPS_SEARCH_MAX_WIDTH)
+        self.package_search.textChanged.connect(self._filter_packages)
+        toolbar.addWidget(self.package_search, 1)
+        toolbar.addStretch(0)
+        refresh = icon_button("刷新列表", theme.ICON_REFRESH)
+        refresh.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        refresh.clicked.connect(self._load_packages)
+        toolbar.addWidget(refresh)
+        install = icon_button("安装 APK", theme.ICON_INBOX,
+                              variant="primary", color="#FFFFFF")
+        install.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        install.clicked.connect(self._show_install_dialog)
+        toolbar.addWidget(install)
+        return toolbar
+
+    def _apps_dialog(self, title: str, content: QWidget) -> QDialog:
+        dialog = QDialog(self.window)
+        dialog.setObjectName("appToolDialog")
+        dialog.setWindowTitle(title)
+        dialog.setMinimumWidth(560)
+        body = QVBoxLayout(dialog)
+        body.setContentsMargins(theme.SPACE_4, theme.SPACE_4,
+                                theme.SPACE_4, theme.SPACE_4)
+        body.addWidget(content)
+        return dialog
+
+    def _show_install_dialog(self) -> None:
+        self._update_target_summary()
+        self.install_dialog.show()
+        self.install_dialog.raise_()
+        self.install_dialog.activateWindow()
+
+    def _show_monkey_dialog(self) -> None:
+        self.monkey_dialog.show()
+        self.monkey_dialog.raise_()
+        self.monkey_dialog.activateWindow()
 
     # -- install ---------------------------------------------------------
 
@@ -364,11 +481,18 @@ class AppsPage(QWidget):
         card.body.addLayout(row)
 
         card.body.addWidget(label("目标设备", "fieldLabel"))
+        target_row = QHBoxLayout()
+        target_row.setSpacing(theme.SPACE_2)
         self.target_mode = QComboBox()
         self.target_mode.addItems(["当前设备", "所有已连接设备", "自定义设备…"])
         self._previous_target_mode = 0
         self.target_mode.currentIndexChanged.connect(self._target_mode_changed)
-        card.body.addWidget(self.target_mode)
+        target_row.addWidget(self.target_mode, 1)
+        self.edit_targets_button = icon_button("修改设备…", theme.ICON_DEVICE)
+        self.edit_targets_button.clicked.connect(self._edit_install_targets)
+        self.edit_targets_button.hide()
+        target_row.addWidget(self.edit_targets_button)
+        card.body.addLayout(target_row)
 
         card.body.addWidget(label("安装选项", "fieldLabel"))
         options = QHBoxLayout()
@@ -397,9 +521,18 @@ class AppsPage(QWidget):
         texts.setSpacing(2)
         self.summary_title = label("未选择设备", "summaryTitle")
         self.summary_detail = label("连接设备后点击「刷新设备」", "hint")
+        self.summary_detail.setTextFormat(Qt.PlainText)
         self.summary_detail.setWordWrap(True)
+        self.summary_detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.summary_detail.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         texts.addWidget(self.summary_title)
-        texts.addWidget(self.summary_detail)
+        self.summary_scroll = QScrollArea()
+        self.summary_scroll.setWidgetResizable(True)
+        self.summary_scroll.setFrameShape(QFrame.NoFrame)
+        self.summary_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.summary_scroll.setWidget(self.summary_detail)
+        self.summary_scroll.setStyleSheet("background: transparent; border: none;")
+        texts.addWidget(self.summary_scroll)
         summary_row.addLayout(texts, 1)
         card.body.addWidget(self.target_summary)
 
@@ -440,13 +573,19 @@ class AppsPage(QWidget):
                 self.target_mode.blockSignals(False)
                 index = self._previous_target_mode
         self._previous_target_mode = index
+        self.edit_targets_button.setVisible(index == 2)
         self._update_target_summary()
+
+    def _edit_install_targets(self) -> None:
+        if self.window.choose_install_targets(self.window.install_targets):
+            self._update_target_summary()
 
     def _update_target_summary(self) -> None:
         targets = self.window.install_target_devices()
         if not targets:
             self.summary_title.setText("未选择设备")
             self.summary_detail.setText("连接设备后点击「刷新设备」")
+            self.summary_scroll.setFixedHeight(32)
             self.install_status.setText("")
             return
         if len(targets) == 1:
@@ -455,7 +594,8 @@ class AppsPage(QWidget):
             self.summary_detail.setText(f"{device.serial} · 已连接")
         else:
             self.summary_title.setText(f"{len(targets)} 台设备")
-            self.summary_detail.setText("、".join(device.label for device in targets))
+            self.summary_detail.setText("\n".join(device.label for device in targets))
+        self.summary_scroll.setFixedHeight(min(max(len(targets), 1) * 36, 180))
         self.install_status.setText(f"{len(targets)} 台在线")
 
     def _install_apk(self) -> None:
@@ -480,38 +620,27 @@ class AppsPage(QWidget):
                 AppMessageBox.warning(self, "APK 文件", str(exc))
                 return
             message = (
-                f"将从 {len(targets)} 台目标设备卸载 {package}，清除应用数据，"
-                "然后安装所选 APK。\n\n"
+                f"将在 {len(targets)} 台目标设备安装 {package}。"
+                "已安装的设备会先卸载旧版并清除数据；未安装的设备会直接安装。\n\n"
                 "如果新 APK 安装失败，旧版应用和数据不会自动恢复。")
             if AppMessageBox.question(
                     self, "不保留数据安装", message, "卸载后安装") \
                     != AppMessageBox.Yes:
                 return
 
-        def work() -> list:
+        def install_targets() -> list:
             results = []
             for device in targets:
                 try:
                     if not keep_data:
-                        installed = window.client.run(
-                            device.serial, "shell", "pm", "path", package,
-                            timeout=15)
-                        if installed and not all(
-                                line.startswith("package:")
-                                for line in installed.splitlines()):
-                            raise AdbError(f"无法确认旧版应用状态：{installed}")
-                        if installed:
+                        if window.client.is_package_installed(device.serial, package):
                             removed = window.client.run(
                                 device.serial, "uninstall", package, timeout=60)
                             if "Success" not in removed.splitlines():
                                 raise AdbError(
                                     f"卸载旧版未成功：{removed or '设备未返回成功结果'}")
-                    output = window.client.run(
-                        device.serial, "install", *flags, str(path))
-                    ok = "Success" in output and "Failure" not in output
-                    if not ok:
-                        raise AdbError(output or "设备未返回安装成功结果。")
-                    results.append((device, ok, output))
+                    output = window.client.install_apk(device.serial, path, flags)
+                    results.append((device, True, output))
                 except AdbError as exc:
                     detail = str(exc)
                     if "INSTALL_FAILED_VERSION_DOWNGRADE" in detail:
@@ -522,6 +651,10 @@ class AppsPage(QWidget):
                             "\n如需覆盖安装低版本，请勾选“允许降级安装”。")
                     results.append((device, False, detail))
             return results
+
+        def work() -> list:
+            with self.install_lock:
+                return install_targets()
 
         def done(results: list) -> None:
             failures = []
@@ -535,63 +668,60 @@ class AppsPage(QWidget):
             if failures:
                 AppMessageBox.warning(self, "APK 安装结果", "\n".join(failures))
 
-        window.submit("安装 APK", work, done)
+        if self.install_lock.locked():
+            window.log("安装任务已排队，等待上一项安装完成")
+        window.submit("安装 APK", work, done, independent=True)
 
     # -- packages --------------------------------------------------------
 
     def _packages_card(self) -> Card:
-        card = Card()
+        card = Card(padding=theme.SPACE_4)
+        card.setObjectName("appsPane")
         self.package_count = label("0 个", "hint")
         heading = QHBoxLayout()
-        heading.addWidget(label("用户安装的应用", "cardTitle"))
+        heading.addWidget(label("已安装应用", "cardTitle"))
         heading.addStretch(1)
         heading.addWidget(self.package_count)
         card.body.addLayout(heading)
-        card.body.addWidget(label(
-            "列出设备上已安装的第三方应用。", "cardDescription"))
-
-        search = QHBoxLayout()
-        search.setSpacing(theme.SPACE_2)
-        self.package_search = QLineEdit()
-        self.package_search.setPlaceholderText("搜索包名")
-        self.package_search.textChanged.connect(self._filter_packages)
-        search.addWidget(self.package_search, 1)
-        load = icon_button("加载", theme.ICON_REFRESH)
-        load.clicked.connect(self._load_packages)
-        search.addWidget(load)
-        card.body.addLayout(search)
-
         self.package_tree = table([("包名", 300)], stretch_column=0)
+        self.package_tree.setObjectName("appsPackageTree")
+        self.package_tree.setHeaderHidden(True)
+        self.package_tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.package_tree.itemSelectionChanged.connect(self._package_selected)
         card.body.addWidget(self.package_tree, 1)
 
         footer = QHBoxLayout()
-        self.package_hint = label("选择一项后卸载", "hint")
+        self.package_hint = label("选择应用查看操作", "hint")
         footer.addWidget(self.package_hint)
         footer.addStretch(1)
-        tools = icon_button("应用工具", "fa6s.wrench")
-        tools.clicked.connect(self._focus_tools)
-        footer.addWidget(tools)
-        uninstall = icon_button("卸载选中", "fa6s.trash-can",
-                                variant="danger", color=theme.DANGER)
-        uninstall.clicked.connect(self._uninstall)
-        footer.addWidget(uninstall)
         card.body.addLayout(footer)
         return card
+
+    def _package_type_changed(self, _index: int) -> None:
+        self.package_tree.clear()
+        self.package_count.setText("0 个")
+        self.package_hint.setText("选择应用查看操作")
+        self.tool_package.clear()
+        self.foreground_value.clear()
+        self._load_packages()
 
     def _load_packages(self) -> None:
         window = self.window
         serial = window.selected_serial()
         if serial is None:
             return
+        package_type = self.package_type.currentData()
         started = time.monotonic()
 
         def work() -> list:
+            if package_type == "system":
+                return window.client.list_system_packages(serial)
             return window.client.list_user_packages(serial)
 
         def done(packages: list) -> None:
             current = window.current_device()
-            if current is None or current.serial != serial:
+            if (current is None or current.serial != serial
+                    or self.package_type.currentData() != package_type):
                 return
             self.package_tree.clear()
             for package in packages:
@@ -600,17 +730,28 @@ class AppsPage(QWidget):
                                          color=theme.TEXT_MUTED))
                 self.package_tree.addTopLevelItem(item)
             self.package_count.setText(f"{len(packages)} 个")
-            self.package_hint.setText("选择一项后卸载")
+            self.package_hint.setText("选择应用查看操作")
             self._filter_packages(self.package_search.text())
             elapsed = time.monotonic() - started
             window.log(f"读取应用列表耗时 {elapsed:.1f} 秒")
             window.set_status(
-                f"找到 {len(packages)} 个用户安装的应用 · {elapsed:.1f} 秒")
+                f"找到 {len(packages)} 个{self.package_type.currentText()} · {elapsed:.1f} 秒")
 
-        window.submit("读取应用列表", work, done)
+        def finished() -> None:
+            current = window.current_device()
+            if (current is not None and current.serial == serial
+                    and self.package_type.currentData() != package_type):
+                self._load_packages()
+
+        window.submit("读取应用列表", work, done, finished=finished)
 
     def _filter_packages(self, text: str) -> None:
         needle = text.strip().lower()
+        if any(needle not in item.text(0).lower()
+               for item in self.package_tree.selectedItems()):
+            self.package_tree.clearSelection()
+            self.tool_package.clear()
+            self.foreground_value.clear()
         visible = 0
         for index in range(self.package_tree.topLevelItemCount()):
             item = self.package_tree.topLevelItem(index)
@@ -618,14 +759,16 @@ class AppsPage(QWidget):
             item.setHidden(not match)
             visible += match
         self.package_hint.setText(
-            f"匹配 {visible} 项" if needle else "选择一项后卸载")
+            f"匹配 {visible} 项" if needle else "选择应用查看操作")
 
     def _package_selected(self) -> None:
         items = self.package_tree.selectedItems()
         self.package_hint.setText(
-            items[0].text(0) if items else "选择一项后卸载")
+            items[0].text(0) if items else "选择应用查看操作")
+        self.uninstall_button.setEnabled(bool(items))
         if items:
             self.tool_package.setText(items[0].text(0))
+        self._tool_package_changed(self.tool_package.text())
 
     def _uninstall(self) -> None:
         window = self.window
@@ -654,76 +797,184 @@ class AppsPage(QWidget):
                 f"{self.package_tree.topLevelItemCount()} 个")
             if self.tool_package.text() == package:
                 self.tool_package.clear()
+            self.package_hint.setText("选择应用查看操作")
 
         window.submit("卸载应用", lambda: window.client.run(
             serial, "uninstall", package), done)
 
     # -- app tools -------------------------------------------------------
 
-    def _focus_tools(self) -> None:
-        self.tool_package.setFocus()
-        view = self.window.pages.widget(0)
-        if isinstance(view, QScrollArea):
-            view.ensureWidgetVisible(self.tools_card, 0, theme.SPACE_4)
-
     def _tools_card(self) -> Card:
-        card = Card(padding=theme.SPACE_4)
-        card.body.addWidget(label("应用工具", "cardTitle"))
-        card.body.addWidget(label(
-            "针对顶部当前设备执行。可从右侧列表选包名，也可手动输入。",
-            "cardDescription"))
+        card = Card(padding=theme.SPACE_5, spacing=theme.SPACE_2)
+        card.setObjectName("appsPane")
 
-        fields = QHBoxLayout()
-        fields.setSpacing(theme.SPACE_3)
-        package_fields = QVBoxLayout()
-        package_fields.addWidget(label("应用包名", "fieldLabel"))
+        heading = QHBoxLayout()
+        heading.setSpacing(theme.SPACE_3)
+        icon = QLabel()
+        icon.setObjectName("appsDetailIcon")
+        icon.setAlignment(Qt.AlignCenter)
+        icon.setFixedSize(36, 36)
+        icon.setPixmap(qta.icon(theme.ICON_APPS,
+                                color=theme.PRIMARY_TEXT).pixmap(18, 18))
+        heading.addWidget(icon)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        self.selected_name = label("选择应用", "cardTitle")
+        self.selected_name.setMinimumWidth(0)
+        self.selected_name.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        names.addWidget(self.selected_name)
+        self.selected_package_label = label("从左侧列表选择，或手动指定包名", "hint")
+        self.selected_package_label.setMinimumWidth(0)
+        self.selected_package_label.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Preferred)
+        names.addWidget(self.selected_package_label)
+        heading.addLayout(names, 1)
+        self.selected_kind = label("", "appsKind")
+        self.selected_kind.hide()
+        heading.addWidget(self.selected_kind)
+        card.body.addLayout(heading)
+
+        metadata = QHBoxLayout()
+        metadata.setSpacing(theme.SPACE_4)
+        metadata.addWidget(label("当前设备", "fieldLabel"))
+        self.selected_device = label("未选择设备", "hint")
+        self.selected_device.setMinimumWidth(0)
+        self.selected_device.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Preferred)
+        metadata.addWidget(self.selected_device, 1)
+        self.manual_toggle = icon_button("手动指定…", "fa6s.pen",
+                                         variant="ghost")
+        self.manual_toggle.clicked.connect(self._toggle_manual_fields)
+        metadata.addWidget(self.manual_toggle)
+        card.body.addLayout(metadata)
+
+        self.manual_fields = QWidget()
+        fields = QGridLayout(self.manual_fields)
+        fields.setContentsMargins(0, 0, 0, 0)
+        fields.setSpacing(theme.SPACE_2)
+        fields.addWidget(label("应用包名", "fieldLabel"), 0, 0)
+        fields.addWidget(label("Activity（可选）", "fieldLabel"), 0, 1)
         self.tool_package = QLineEdit()
         self.tool_package.setPlaceholderText("com.example.app")
-        package_fields.addWidget(self.tool_package)
-        fields.addLayout(package_fields, 1)
-        activity_fields = QVBoxLayout()
-        activity_fields.addWidget(label("Activity（可选）", "fieldLabel"))
+        self.tool_package.textEdited.connect(
+            lambda _text: self.package_tree.clearSelection())
+        fields.addWidget(self.tool_package, 1, 0)
         self.tool_activity = QLineEdit()
         self.tool_activity.setPlaceholderText(".MainActivity；留空启动默认入口")
-        activity_fields.addWidget(self.tool_activity)
-        fields.addLayout(activity_fields, 1)
-        card.body.addLayout(fields)
+        self.tool_activity.setToolTip(
+            "留空启动默认入口；也可输入 .MainActivity 等 Activity 名称")
+        fields.addWidget(self.tool_activity, 1, 1)
+        fields.setColumnStretch(0, 1)
+        fields.setColumnStretch(1, 1)
+        self.manual_fields.hide()
+        card.body.addWidget(self.manual_fields)
 
+        card.body.addWidget(divider())
+        card.body.addWidget(label("常用操作", "fieldLabel"))
+        self.package_action_buttons: list[QPushButton] = []
         actions = QHBoxLayout()
         actions.setSpacing(theme.SPACE_2)
         for title, icon, handler, variant in (
             ("启动 App", "fa6s.play", self._start_app, "primary"),
             ("强制停止", "fa6s.stop", self._stop_app, ""),
-            ("清除缓存", "fa6s.broom", lambda: self._clear_app(True), ""),
-            ("清除数据", "fa6s.trash-can", lambda: self._clear_app(False), "danger"),
         ):
             button = icon_button(title, icon, variant=variant,
                                  color="#FFFFFF" if variant == "primary" else None)
             button.clicked.connect(handler)
-            actions.addWidget(button)
-        actions.addStretch(1)
+            self.package_action_buttons.append(button)
+            actions.addWidget(button, 1)
         card.body.addLayout(actions)
         self.tool_feedback = label("", "hint")
         self.tool_feedback.setWordWrap(True)
+        self.tool_feedback.hide()
         card.body.addWidget(self.tool_feedback)
 
-        inspect = QHBoxLayout()
-        inspect.setSpacing(theme.SPACE_2)
-        foreground = icon_button("读取前台 Activity", "fa6s.crosshairs")
+        card.body.addWidget(divider())
+        card.body.addWidget(label("检查与诊断", "fieldLabel"))
+        diagnostics = QGridLayout()
+        diagnostics.setSpacing(theme.SPACE_2)
+        permissions = icon_button("应用权限")
+        permissions.clicked.connect(self._show_permissions)
+        diagnostics.addWidget(permissions, 0, 0)
+        self.package_action_buttons.append(permissions)
+        processes = icon_button("进程与内存")
+        processes.clicked.connect(self._show_processes)
+        diagnostics.addWidget(processes, 0, 1)
+        self.package_action_buttons.append(processes)
+        monkey = icon_button("Monkey 测试")
+        monkey.clicked.connect(self._show_monkey_dialog)
+        diagnostics.addWidget(monkey, 0, 2)
+        self.package_action_buttons.append(monkey)
+        for index in range(3):
+            diagnostics.setColumnStretch(index, 1)
+        card.body.addLayout(diagnostics)
+
+        foreground = icon_button("读取前台 Activity", "fa6s.crosshairs",
+                                 variant="ghost")
         foreground.clicked.connect(self._foreground_activity)
-        inspect.addWidget(foreground)
+        card.body.addWidget(foreground)
         self.foreground_value = QLineEdit()
         self.foreground_value.setReadOnly(True)
-        self.foreground_value.setPlaceholderText("点击左侧按钮查看当前页面")
-        inspect.addWidget(self.foreground_value, 1)
-        permissions = icon_button("应用权限", "fa6s.shield-halved")
-        permissions.clicked.connect(self._show_permissions)
-        inspect.addWidget(permissions)
-        processes = icon_button("进程与内存", "fa6s.chart-simple")
-        processes.clicked.connect(self._show_processes)
-        inspect.addWidget(processes)
-        card.body.addLayout(inspect)
+        self.foreground_value.setMaximumWidth(
+            theme.APPS_FOREGROUND_MAX_WIDTH)
+        self.foreground_value.setPlaceholderText("当前前台页面")
+        card.body.addWidget(self.foreground_value)
+
+        card.body.addWidget(divider())
+        card.body.addWidget(label("维护操作", "fieldLabel"))
+        maintenance = QGridLayout()
+        maintenance.setSpacing(theme.SPACE_2)
+        cache = icon_button("清除缓存")
+        cache.clicked.connect(lambda: self._clear_app(True))
+        maintenance.addWidget(cache, 0, 0)
+        self.package_action_buttons.append(cache)
+        data = icon_button("清除数据",
+                           variant="danger", color=theme.DANGER)
+        data.clicked.connect(lambda: self._clear_app(False))
+        maintenance.addWidget(data, 0, 1)
+        self.package_action_buttons.append(data)
+        self.uninstall_button = icon_button(
+            "卸载应用",
+            variant="danger", color=theme.DANGER)
+        self.uninstall_button.clicked.connect(self._uninstall)
+        self.uninstall_button.setEnabled(False)
+        maintenance.addWidget(self.uninstall_button, 0, 2)
+        for index in range(3):
+            maintenance.setColumnStretch(index, 1)
+        card.body.addLayout(maintenance)
+        note = label("清除数据和卸载会影响设备上的应用，请确认后执行。", "hint")
+        note.setWordWrap(True)
+        card.body.addWidget(note)
+        card.body.addStretch(1)
+        self.tool_package.textChanged.connect(self._tool_package_changed)
+        self._tool_package_changed("")
         return card
+
+    def _toggle_manual_fields(self) -> None:
+        visible = self.manual_fields.isHidden()
+        self.manual_fields.setVisible(visible)
+        self.manual_toggle.setText("收起手动输入" if visible else "手动指定…")
+        if visible:
+            self.tool_package.setFocus()
+
+    def _tool_package_changed(self, text: str) -> None:
+        package = text.strip()
+        self.foreground_value.clear()
+        self.tool_feedback.clear()
+        self.tool_feedback.hide()
+        selected = bool(self.package_tree.selectedItems())
+        self.selected_name.setText(package or "选择应用")
+        self.selected_name.setToolTip(package)
+        self.selected_package_label.setText(
+            "来自当前设备的应用列表" if selected else
+            "手动指定的应用包名" if package else
+            "从左侧列表选择，或手动指定包名")
+        kind = (self.package_type.currentText() if selected else
+                "手动输入" if package else "")
+        self.selected_kind.setText(kind)
+        self.selected_kind.setVisible(bool(kind))
+        for button in self.package_action_buttons:
+            button.setEnabled(bool(package))
 
     def _tool_target(self) -> tuple[str, str] | None:
         serial = self.window.selected_serial()
@@ -743,6 +994,7 @@ class AppsPage(QWidget):
         serial, package = target
         activity = self.tool_activity.text().strip()
         self.tool_feedback.setText(f"正在设备 {serial} 上启动 {package}…")
+        self.tool_feedback.show()
 
         def work() -> tuple[str, str | None]:
             output = self.window.client.start_app(serial, package, activity)
@@ -838,106 +1090,223 @@ class AppsPage(QWidget):
                                self.window, serial, package, report).exec(),
                            log_result=False)
 
+    # -- Monkey test -----------------------------------------------------
+
+    def _monkey_card(self) -> Card:
+        card = Card(padding=theme.SPACE_4)
+        card.body.addWidget(label("Monkey 测试", "cardTitle"))
+        card.body.addWidget(label(
+            "在当前设备对上方应用运行随机操作；请先解锁设备，应用状态可能改变。",
+            "cardDescription"))
+
+        controls = QHBoxLayout()
+        controls.setSpacing(theme.SPACE_2)
+        controls.addWidget(label("事件数", "fieldLabel"))
+        self.monkey_events = QSpinBox()
+        self.monkey_events.setRange(1, 100000)
+        self.monkey_events.setValue(500)
+        controls.addWidget(self.monkey_events)
+        controls.addWidget(label("间隔（毫秒）", "fieldLabel"))
+        self.monkey_throttle = QSpinBox()
+        self.monkey_throttle.setRange(0, 10000)
+        self.monkey_throttle.setValue(100)
+        controls.addWidget(self.monkey_throttle)
+        controls.addStretch(1)
+        self.monkey_start_button = icon_button(
+            "开始测试", "fa6s.play", variant="primary", color="#FFFFFF")
+        self.monkey_start_button.clicked.connect(self._start_monkey)
+        controls.addWidget(self.monkey_start_button)
+        self.monkey_stop_button = icon_button("停止", "fa6s.stop")
+        self.monkey_stop_button.setEnabled(False)
+        self.monkey_stop_button.clicked.connect(self._stop_monkey)
+        controls.addWidget(self.monkey_stop_button)
+        card.body.addLayout(controls)
+
+        self.monkey_status = label("未启动", "hint")
+        card.body.addWidget(self.monkey_status)
+        self.monkey_output = QPlainTextEdit()
+        self.monkey_output.setObjectName("logcatView")
+        self.monkey_output.setReadOnly(True)
+        self.monkey_output.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.monkey_output.setMaximumBlockCount(2000)
+        self.monkey_output.setMinimumHeight(140)
+        self.monkey_output.setPlaceholderText("测试输出将在这里显示，最多保留最近 2000 行。")
+        card.body.addWidget(self.monkey_output)
+        return card
+
+    def _start_monkey(self) -> None:
+        if self.monkey_process is not None:
+            return
+        target = self._tool_target()
+        if target is None or self.window.client is None:
+            return
+        serial, package = target
+        events = self.monkey_events.value()
+        try:
+            args = monkey_arguments(
+                serial, package, events, self.monkey_throttle.value())
+        except AdbError as exc:
+            AppMessageBox.warning(self, "Monkey 测试", str(exc))
+            return
+        process = QProcess(self)
+        process.setProgram(self.window.client.executable)
+        process.setArguments(args)
+        process.setProcessChannelMode(QProcess.MergedChannels)
+        process.readyReadStandardOutput.connect(
+            lambda: self._read_monkey_output(process))
+        process.finished.connect(
+            lambda _code, _status: self._monkey_finished(process))
+        process.errorOccurred.connect(
+            lambda _error: self._monkey_error(process))
+        self.monkey_process = process
+        self.monkey_serial = serial
+        self.monkey_stopping = False
+        self.monkey_decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self.monkey_output_tail = ""
+        self.monkey_requested = events
+        self.monkey_output.clear()
+        self.monkey_status.setText(f"正在测试 {package} · {events} 个事件")
+        self.monkey_start_button.setEnabled(False)
+        self.monkey_stop_button.setEnabled(True)
+        self.monkey_events.setEnabled(False)
+        self.monkey_throttle.setEnabled(False)
+        self.window.log(f"▶ Monkey 测试 {package} · {serial} · {events} 个事件")
+        process.start()
+
+    def _read_monkey_output(self, process: QProcess) -> None:
+        if process is not self.monkey_process:
+            return
+        chunk = self.monkey_decoder.decode(bytes(process.readAllStandardOutput()))
+        if chunk:
+            self.monkey_output.moveCursor(QTextCursor.End)
+            self.monkey_output.insertPlainText(chunk)
+            self.monkey_output.ensureCursorVisible()
+            self.monkey_output_tail = (self.monkey_output_tail + chunk)[-16000:]
+
+    def _monkey_error(self, process: QProcess) -> None:
+        if process is self.monkey_process and process.error() == QProcess.FailedToStart:
+            self.monkey_status.setText(f"无法启动 ADB：{process.errorString()}")
+            self.window.log(f"✗ Monkey 测试无法启动：{process.errorString()}")
+            self.window.set_status("Monkey 测试无法启动")
+            self._reset_monkey(process)
+            process.deleteLater()
+
+    def _monkey_finished(self, process: QProcess) -> None:
+        if process is self.monkey_process:
+            self._read_monkey_output(process)
+            remainder = self.monkey_decoder.decode(b"", final=True)
+            if remainder:
+                self.monkey_output.moveCursor(QTextCursor.End)
+                self.monkey_output.insertPlainText(remainder)
+                self.monkey_output_tail = (self.monkey_output_tail + remainder)[-16000:]
+            if self.monkey_stopping:
+                message = "Monkey 测试已停止"
+                ok = False
+            else:
+                ok, message = monkey_result(
+                    self.monkey_output_tail, process.exitCode(),
+                    self.monkey_requested)
+            self.monkey_status.setText(message)
+            self.window.log(f"{'✓' if ok else '✗'} {message}")
+            self.window.set_status(message)
+            self._reset_monkey(process)
+        process.deleteLater()
+
+    def _reset_monkey(self, process: QProcess) -> None:
+        if process is not self.monkey_process:
+            return
+        self.monkey_process = None
+        self.monkey_serial = None
+        self.monkey_start_button.setEnabled(True)
+        self.monkey_stop_button.setEnabled(False)
+        self.monkey_events.setEnabled(True)
+        self.monkey_throttle.setEnabled(True)
+
+    def _stop_monkey(self) -> None:
+        process = self.monkey_process
+        if process is None or self.monkey_stopping:
+            return
+        self.monkey_stopping = True
+        self.monkey_status.setText("正在停止 Monkey 测试…")
+        self.monkey_stop_button.setEnabled(False)
+        if process.state() != QProcess.NotRunning:
+            process.kill()
+
     def device_changed(self, serial: str | None) -> None:
+        if self.monkey_serial is not None and serial != self.monkey_serial:
+            self._stop_monkey()
+        device = self.window.current_device()
+        self.selected_device.setText(
+            device.display_name if device else "未选择设备")
         if serial == self._package_device_serial:
             return
         self._package_device_serial = serial
         self.package_tree.clear()
         self.package_count.setText("0 个")
-        self.package_hint.setText("选择一项后卸载")
+        self.package_hint.setText("选择应用查看操作")
         self.tool_package.clear()
+        self.tool_feedback.clear()
+        self.tool_feedback.hide()
         self.foreground_value.clear()
-
-    # -- log -------------------------------------------------------------
-
-    def _log_card(self) -> Card:
-        card = Card(padding=theme.SPACE_4)
-        head = QHBoxLayout()
-        head.addWidget(label("活动记录", "cardTitle"))
-        head.addStretch(1)
-        self.log_status = label("就绪", "hint")
-        head.addWidget(self.log_status)
-        card.body.addLayout(head)
-
-        log = QPlainTextEdit()
-        log.setObjectName("logView")
-        log.setReadOnly(True)
-        log.setMinimumHeight(64)
-        log.setMaximumHeight(132)
-        log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        card.body.addWidget(log)
-        self.window.log_view = log
-        return card
-
 
 class ShotPage(QWidget):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__()
         self.window = window
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_4)
-
-        layout.addWidget(self._capture_card())
+        self.capture_button = icon_button(
+            "截取当前屏幕", theme.ICON_SHOT,
+            variant="primary", color="#FFFFFF")
+        self.capture_button.clicked.connect(self._take_screenshot)
+        self.header_actions = header_actions(self.capture_button)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(
+            theme.SPACE_5, 0, theme.SPACE_5, theme.SPACE_4)
+        layout.setSpacing(theme.SPACE_3)
+        preview = self._preview_card()
+        preview.setFixedWidth(theme.SHOT_PREVIEW_PANE_WIDTH)
+        layout.addWidget(preview)
         layout.addWidget(self._history_card(), 1)
 
-    def _capture_card(self) -> Card:
-        card = Card()
-        row = QHBoxLayout()
-        row.setSpacing(theme.SPACE_6)
-        texts = QVBoxLayout()
-        texts.setSpacing(theme.SPACE_2)
-        texts.addWidget(label("把当前屏幕保存到 Mac", "cardTitle"))
-        texts.addWidget(label(
-            "选择保存位置，完成后即可在下方历史记录中找到截图。",
-            "cardDescription"))
-        texts.addSpacing(theme.SPACE_2)
-        button_row = QHBoxLayout()
-        capture = icon_button("截取当前屏幕", theme.ICON_SHOT,
-                              variant="primary", color="#FFFFFF")
-        capture.setMinimumWidth(148)
-        capture.clicked.connect(self._take_screenshot)
-        button_row.addWidget(capture)
-        button_row.addStretch(1)
-        texts.addLayout(button_row)
-        row.addLayout(texts, 1)
-        row.addWidget(self._illustration())
-        card.body.addLayout(row)
+    def _preview_card(self) -> Card:
+        card = Card(padding=theme.SPACE_4)
+        card.setObjectName("workbenchCard")
+        card.body.addWidget(label("最近一次截图", "cardTitle"))
+        self.preview_image = QLabel("选择截图记录\n查看预览")
+        self.preview_image.setObjectName("shotPreview")
+        self.preview_image.setAlignment(Qt.AlignCenter)
+        self.preview_image.setMinimumHeight(theme.SHOT_PREVIEW_HEIGHT)
+        self.preview_image.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding)
+        card.body.addWidget(self.preview_image, 1)
+        self.preview_name = label("尚无截图", "hint")
+        self.preview_name.setWordWrap(True)
+        card.body.addWidget(self.preview_name)
+        self.open_button = icon_button("打开图片", "fa6s.arrow-up-right-from-square")
+        self.open_button.clicked.connect(self._open_image)
+        self.open_button.setEnabled(False)
+        file_manager = "资源管理器" if sys.platform == "win32" else "Finder"
+        self.reveal_button = icon_button(f"在{file_manager}中显示", theme.ICON_FILES)
+        self.reveal_button.clicked.connect(self._reveal)
+        self.reveal_button.setEnabled(False)
+        card.body.addWidget(self.open_button)
+        card.body.addWidget(self.reveal_button)
         return card
 
-    def _illustration(self) -> QWidget:
-        preview = QWidget()
-        preview.setFixedSize(104, 104)
-        preview.setStyleSheet(
-            f"background: {theme.PRIMARY_SOFT};"
-            f"border: 1px solid {theme.BORDER};"
-            f"border-radius: {theme.RADIUS_CARD}px;"
-        )
-        inner = QVBoxLayout(preview)
-        inner.setContentsMargins(0, 0, 0, 0)
-        glyph = QLabel()
-        glyph.setAlignment(Qt.AlignCenter)
-        glyph.setPixmap(qta.icon(
-            theme.ICON_SHOT, color=theme.PRIMARY).pixmap(36, 36))
-        inner.addWidget(glyph)
-        return preview
-
     def _history_card(self) -> Card:
-        card = Card()
+        card = Card(padding=theme.SPACE_4)
+        card.setObjectName("workbenchCard")
         self.record_count = label("", "hint")
         head = QHBoxLayout()
         head.addWidget(label("截图历史", "cardTitle"))
         head.addWidget(self.record_count)
         head.addStretch(1)
-        reveal = icon_button("在 Finder 中显示", theme.ICON_FILES,
-                             variant="ghost")
-        reveal.clicked.connect(self._reveal)
-        head.addWidget(reveal)
         card.body.addLayout(head)
 
         self.history_tree = table([
-            ("文件名", 220), ("保存时间", 150), ("设备", 140),
-            ("保存文件夹", 260)])
+            ("文件名", 220), ("保存时间", 130), ("设备", 145)])
+        self.history_tree.setIconSize(QSize(
+            theme.SHOT_HISTORY_THUMB_WIDTH,
+            theme.SHOT_HISTORY_THUMB_HEIGHT))
         self.history_tree.itemDoubleClicked.connect(lambda _i, _c: self._reveal())
         self.history_tree.itemSelectionChanged.connect(self._selection_changed)
         card.body.addWidget(self.history_tree, 1)
@@ -952,15 +1321,28 @@ class ShotPage(QWidget):
         self.history_tree.clear()
         for record in records:
             item = QTreeWidgetItem([
-                record.path.name, record.display_time, record.device_name,
-                str(record.path.parent)])
-            item.setIcon(0, qta.icon("fa6s.image", color=theme.TEXT_MUTED))
+                record.path.name, record.display_time, record.device_name])
+            reader = QImageReader(str(record.path))
+            native_size = reader.size()
+            if native_size.isValid():
+                reader.setScaledSize(native_size.scaled(
+                    QSize(theme.SHOT_HISTORY_THUMB_WIDTH,
+                          theme.SHOT_HISTORY_THUMB_HEIGHT),
+                    Qt.KeepAspectRatio))
+            thumbnail = reader.read()
+            item.setIcon(0, QIcon(QPixmap.fromImage(thumbnail))
+                         if not thumbnail.isNull() else
+                         qta.icon("fa6s.image", color=theme.TEXT_MUTED))
             item.setData(0, Qt.UserRole, record)
             self.history_tree.addTopLevelItem(item)
         if not records:
             self.history_tree.addTopLevelItem(QTreeWidgetItem(
-                ["还没有截图记录", "", "", "点击上方按钮截取当前屏幕"]))
+                ["还没有截图记录", "", ""]))
         self.record_count.setText(f"{len(records)} 张截图")
+        if records:
+            self.history_tree.setCurrentItem(self.history_tree.topLevelItem(0))
+        else:
+            self._selection_changed()
 
     def _take_screenshot(self) -> None:
         window = self.window
@@ -1000,6 +1382,27 @@ class ShotPage(QWidget):
         self.path_hint.setText(
             str(record.path) if record
             else "选择一条记录查看完整保存路径")
+        self.open_button.setEnabled(record is not None)
+        self.reveal_button.setEnabled(record is not None)
+        self.preview_name.setText(record.path.name if record else "尚无截图")
+        if record and record.path.is_file():
+            pixmap = QPixmap(str(record.path))
+            if not pixmap.isNull():
+                self.preview_image.setPixmap(pixmap.scaled(
+                    theme.SHOT_PREVIEW_PANE_WIDTH - 2 * theme.SPACE_4,
+                    theme.SHOT_PREVIEW_HEIGHT,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                return
+        self.preview_image.clear()
+        self.preview_image.setText(
+            "图片文件不存在" if record else "选择截图记录\n查看预览")
+
+    def _open_image(self) -> None:
+        items = self.history_tree.selectedItems()
+        record = items[0].data(0, Qt.UserRole) if items else None
+        if record is not None and not QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(record.path))):
+            AppMessageBox.warning(self, "打开截图", "无法打开这张截图。")
 
     def _reveal(self) -> None:
         items = self.history_tree.selectedItems()
@@ -1008,12 +1411,13 @@ class ShotPage(QWidget):
             AppMessageBox.information(self, "截图历史", "请先选择一条截图记录。")
             return
         window = self.window
+        file_manager = "资源管理器" if sys.platform == "win32" else "Finder"
 
         def done(result: str) -> None:
-            window.log(f"已在 Finder 中显示：{result}")
+            window.log(f"已在{file_manager}中显示：{result}")
 
-        window.submit("在 Finder 中显示截图",
-                      lambda: reveal_in_finder(record.path), done)
+        window.submit(f"在{file_manager}中显示截图",
+                      lambda: reveal_in_file_manager(record.path), done)
 
 
 class FilePane:
@@ -1030,8 +1434,10 @@ class FilePane:
 
     def build(self) -> QWidget:
         card = Card(padding=theme.SPACE_4)
+        card.setObjectName("workbenchCard")
         head = QHBoxLayout()
-        self.title_label = label("本机 · Mac" if self.local else "设备文件",
+        local_machine = "Windows" if sys.platform == "win32" else "Mac"
+        self.title_label = label(f"本机 · {local_machine}" if self.local else "设备文件",
                                  "cardTitle")
         head.addWidget(self.title_label)
         head.addStretch(1)
@@ -1062,7 +1468,9 @@ class FilePane:
         ):
             button = icon_button(text, icon_name)
             button.setFixedHeight(theme.CONTROL_HEIGHT)
-            button.setStyleSheet("padding: 0 10px; font-size: 10pt;")
+            button.setStyleSheet(
+                f"padding: 0 {theme.FILE_NAV_BUTTON_PADDING}px;"
+                f"font-size: {theme.FONT_SIZE_SMALL}pt;")
             button.clicked.connect(handler)
             nav.addWidget(button)
         nav.addStretch(1)
@@ -1076,6 +1484,8 @@ class FilePane:
 
         footer = QHBoxLayout()
         self.info_label = label("", "hint")
+        self.info_label.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Preferred)
         footer.addWidget(self.info_label)
         footer.addStretch(1)
         if not self.local:
@@ -1234,8 +1644,9 @@ class FilesPage(QWidget):
         self.remote = FilePane(self, local=False)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_4)
+        layout.setContentsMargins(
+            theme.SPACE_5, 0, theme.SPACE_5, theme.SPACE_4)
+        layout.setSpacing(theme.SPACE_2)
         layout.addWidget(self.local.build(), 1)
         layout.addLayout(self._transfer_column(), 0)
         layout.addWidget(self.remote.build(), 1)
@@ -1311,7 +1722,7 @@ class FilesPage(QWidget):
                      if (destination / entry.name).exists()]
         if conflicts and AppMessageBox.question(
             self, "目标已存在",
-            f"Mac 上已有 {len(conflicts)} 个同名项。继续下载可能覆盖文件，是否继续？",
+            f"本机上已有 {len(conflicts)} 个同名项。继续下载可能覆盖文件，是否继续？",
             "继续",
         ) != AppMessageBox.Yes:
             return
@@ -1397,13 +1808,13 @@ class WifiDialog(QDialog):
                                 theme.SPACE_6, theme.SPACE_6)
         body.setSpacing(theme.SPACE_3)
         body.addWidget(label("Wi-Fi 连接", "pageTitle"))
-        body.addWidget(label("Mac 和 Android 设备需连接同一 Wi-Fi 网络。",
+        body.addWidget(label("电脑和 Android 设备需连接同一 Wi-Fi 网络。",
                              "pageSubtitle"))
 
         pair = Card(padding=theme.SPACE_4)
-        pair.body.addWidget(label("Android 11 及以上 · 无线调试配对", "cardTitle"))
+        pair.body.addWidget(label("首次配对（Android 11 及以上）", "cardTitle"))
         pair.body.addWidget(label(
-            "在手机「无线调试」中点「使用配对码配对设备」，填写弹出的 IP、端口和配对码。",
+            "首次连接时，在手机「无线调试」中点「使用配对码配对设备」。已配对的设备可跳过此步，直接在下方连接。",
             "cardDescription"))
         self.pair_endpoint = self._field(pair, "配对地址（IP:配对端口）")
         self.pair_code = self._field(pair, "6 位配对码")
@@ -1433,6 +1844,9 @@ class WifiDialog(QDialog):
         disconnect.clicked.connect(self._disconnect)
         actions.addWidget(disconnect)
         connect.body.addLayout(actions)
+        self.connect_feedback = label("", "accent")
+        self.connect_feedback.hide()
+        connect.body.addWidget(self.connect_feedback)
         body.addWidget(connect)
 
         close = icon_button("关闭", None)
@@ -1464,10 +1878,13 @@ class WifiDialog(QDialog):
 
         def done(result: str) -> None:
             window.log(f"✓ Wi-Fi 连接：{result}")
-            window.refresh_devices()
+            self.connect_feedback.setText(f"✓ 连接成功：{endpoint}")
+            self.connect_feedback.show()
+            window.refresh_devices(preferred_serial=endpoint)
 
-        window.submit("Wi-Fi 连接",
-                      lambda: window.client.connect_wifi(endpoint), done)
+        if window.submit("Wi-Fi 连接",
+                         lambda: window.client.connect_wifi(endpoint), done):
+            self.connect_feedback.hide()
 
     def _enable_tcpip(self) -> None:
         window = self.window
@@ -1937,10 +2354,20 @@ class LogcatPage(QWidget):
         self.pid_generation = 0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_4)
+        layout.setContentsMargins(
+            theme.SPACE_5, 0, theme.SPACE_5, theme.SPACE_4)
+        layout.setSpacing(theme.SPACE_3)
         card = Card(padding=theme.SPACE_4)
-        layout.addWidget(card)
+        card.setObjectName("workbenchCard")
+        layout.addWidget(card, 1)
+
+        self.start_button = icon_button("开始", "fa6s.play", variant="primary")
+        self.start_button.clicked.connect(self.start)
+        self.stop_button = icon_button("停止", "fa6s.stop")
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop)
+        self.header_actions = header_actions(
+            self.start_button, self.stop_button)
 
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE_2)
@@ -1961,14 +2388,7 @@ class LogcatPage(QWidget):
         for level in ("V", "D", "I", "W", "E"):
             self.level_box.addItem(level, level)
         row.addWidget(self.level_box)
-        row.addStretch()
-        self.start_button = icon_button("启动", "fa6s.play", variant="primary")
-        self.start_button.clicked.connect(self.start)
-        row.addWidget(self.start_button)
-        self.stop_button = icon_button("停止", "fa6s.stop")
-        self.stop_button.setEnabled(False)
-        self.stop_button.clicked.connect(self.stop)
-        row.addWidget(self.stop_button)
+        row.addStretch(1)
         card.body.addLayout(row)
 
         filters = QHBoxLayout()
@@ -2001,9 +2421,9 @@ class LogcatPage(QWidget):
         self.log_view.setPlaceholderText(
             "暂无日志。启动后会显示符合筛选条件的日志。")
         self.log_view.setMaximumBlockCount(self.MAX_LINES)
-        self.log_view.setMinimumHeight(theme.LOGCAT_VIEW_MIN_HEIGHT)
+        self.log_view.setMinimumHeight(theme.LOGCAT_WORKBENCH_VIEW_MIN_HEIGHT)
         self.highlighter = LogcatHighlighter(self.log_view.document())
-        card.body.addWidget(self.log_view)
+        card.body.addWidget(self.log_view, 1)
         self.level_box.currentIndexChanged.connect(self._render)
 
         actions = QHBoxLayout()
@@ -2022,20 +2442,20 @@ class LogcatPage(QWidget):
         card.body.addLayout(actions)
 
         crash = Card(padding=theme.SPACE_4)
-        crash.body.addWidget(label("崩溃日志抓取", "cardTitle"))
+        crash.setObjectName("workbenchCard")
+        crash_head = QHBoxLayout()
+        crash_head.addWidget(label("崩溃文件", "cardTitle"))
+        crash_head.addStretch(1)
+        self.crash_button = icon_button("抓取崩溃文件", "fa6s.download")
+        self.crash_button.clicked.connect(self.pull_crashes)
+        crash_head.addWidget(self.crash_button)
+        crash.body.addLayout(crash_head)
         crash.body.addWidget(label(
             "抓取设备上的 ANR 与 tombstone 文件。受设备权限限制时会尝试生成 bugreport。", "muted"))
-        crash_actions = QHBoxLayout()
         self.crash_status = label("选择保存位置后开始抓取", "muted")
         self.crash_status.setWordWrap(True)
-        crash_actions.addWidget(self.crash_status, 1)
-        self.crash_button = icon_button("抓取 ANR / tombstone", "fa6s.download",
-                                        variant="primary")
-        self.crash_button.clicked.connect(self.pull_crashes)
-        crash_actions.addWidget(self.crash_button)
-        crash.body.addLayout(crash_actions)
+        crash.body.addWidget(self.crash_status)
         layout.addWidget(crash)
-        layout.addStretch()
 
         self.flush_timer = QTimer(self)
         self.flush_timer.timeout.connect(self._flush)
@@ -2439,6 +2859,63 @@ class LogcatPage(QWidget):
 
 # --- Performance monitoring ---------------------------------------------
 
+class TrendChart(QWidget):
+    """Small live chart for recent application performance samples."""
+
+    def __init__(self, *, ceiling: float | None = None) -> None:
+        super().__init__()
+        self.values: deque[float | None] = deque(maxlen=60)
+        self.ceiling = ceiling
+        self.setMinimumHeight(theme.PERFORMANCE_CHART_HEIGHT)
+
+    def clear(self) -> None:
+        self.values.clear()
+        self.update()
+
+    def append(self, value: float | None) -> None:
+        self.values.append(value)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = self.rect().adjusted(
+            theme.SPACE_1, theme.SPACE_2,
+            -theme.SPACE_1, -theme.SPACE_5)
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+        painter.setPen(QPen(QColor(theme.BORDER), 1))
+        for fraction in (0.0, 0.5, 1.0):
+            y = rect.bottom() - fraction * rect.height()
+            painter.drawLine(rect.left(), int(y), rect.right(), int(y))
+        points = [value for value in self.values if value is not None]
+        if len(points) < 2:
+            painter.setPen(QColor(theme.TEXT_MUTED))
+            painter.drawText(rect, Qt.AlignCenter, "开始监控后显示趋势")
+        else:
+            top = self.ceiling or max(max(points) * 1.15, 1.0)
+            path = QPainterPath()
+            drawing = False
+            count = max(self.values.maxlen - 1, 1)
+            for index, value in enumerate(self.values):
+                if value is None:
+                    drawing = False
+                    continue
+                x = rect.left() + index * rect.width() / count
+                y = rect.bottom() - min(value / top, 1.0) * rect.height()
+                if drawing:
+                    path.lineTo(x, y)
+                else:
+                    path.moveTo(x, y)
+                    drawing = True
+            painter.setPen(QPen(QColor(theme.PRIMARY), 2))
+            painter.drawPath(path)
+        painter.setPen(QColor(theme.TEXT_MUTED))
+        painter.drawText(
+            self.rect().adjusted(theme.SPACE_1, 0, -theme.SPACE_1, 0),
+            Qt.AlignBottom | Qt.AlignLeft, "最近 60 次采样")
+
+
 class PerformancePage(QWidget):
     SAMPLE_MS = 2500
     NETWORK_MS = 12000
@@ -2462,10 +2939,20 @@ class PerformancePage(QWidget):
         self.network_results: queue.Queue = queue.Queue()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_4)
+        layout.setContentsMargins(
+            theme.SPACE_5, 0, theme.SPACE_5, theme.SPACE_4)
+        layout.setSpacing(theme.SPACE_3)
+
+        self.start_button = icon_button("开始监控", "fa6s.play", variant="primary")
+        self.start_button.clicked.connect(self.start)
+        self.stop_button = icon_button("停止", "fa6s.stop")
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop)
+        self.header_actions = header_actions(
+            self.start_button, self.stop_button)
 
         controls = Card(padding=theme.SPACE_4)
+        controls.setObjectName("workbenchCard")
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE_2)
         row.addWidget(label("应用包名"))
@@ -2484,22 +2971,13 @@ class PerformancePage(QWidget):
         row.addWidget(refresh)
         controls.body.addLayout(row)
 
-        actions = QHBoxLayout()
         self.status = label("选择应用后开始监控", "muted")
         self.status.setWordWrap(True)
-        actions.addWidget(self.status, 1)
-        self.start_button = icon_button("开始监控", "fa6s.play", variant="primary")
-        self.start_button.clicked.connect(self.start)
-        actions.addWidget(self.start_button)
-        self.stop_button = icon_button("停止", "fa6s.stop")
-        self.stop_button.setEnabled(False)
-        self.stop_button.clicked.connect(self.stop)
-        actions.addWidget(self.stop_button)
-        controls.body.addLayout(actions)
+        controls.body.addWidget(self.status)
         layout.addWidget(controls)
 
         metrics = QGridLayout()
-        metrics.setSpacing(theme.SPACE_4)
+        metrics.setSpacing(theme.SPACE_2)
         cpu_card, self.cpu_value, self.cpu_detail = self._metric_card(
             "CPU", "—", "应用进程 · 单核 100%")
         memory_card, self.memory_value, self.memory_detail = self._metric_card(
@@ -2515,15 +2993,27 @@ class PerformancePage(QWidget):
         self.layer_detail = label("图层：—", "muted")
         self.layer_detail.setWordWrap(True)
         fps_card.body.addWidget(self.layer_detail)
-        metrics.addWidget(cpu_card, 0, 0)
-        metrics.addWidget(memory_card, 0, 1)
-        metrics.addWidget(network_card, 1, 0)
-        metrics.addWidget(fps_card, 1, 1)
-        metrics.setColumnStretch(0, 1)
-        metrics.setColumnStretch(1, 1)
+        for column, card in enumerate((cpu_card, memory_card,
+                                       network_card, fps_card)):
+            metrics.addWidget(card, 0, column)
+            metrics.setColumnStretch(column, 1)
         layout.addLayout(metrics)
 
+        charts = QHBoxLayout()
+        charts.setSpacing(theme.SPACE_3)
+        for title, key, ceiling in (("CPU 趋势", "cpu", 100.0),
+                                    ("内存趋势", "memory", None)):
+            card = Card(padding=theme.SPACE_4)
+            card.setObjectName("workbenchCard")
+            card.body.addWidget(label(title, "cardTitle"))
+            chart = TrendChart(ceiling=ceiling)
+            card.body.addWidget(chart)
+            charts.addWidget(card, 1)
+            setattr(self, f"{key}_chart", chart)
+        layout.addLayout(charts)
+
         history = Card(padding=theme.SPACE_4)
+        history.setObjectName("workbenchCard")
         history.body.addWidget(label("采样记录", "cardTitle"))
         history.body.addWidget(label(
             "约每 2.5 秒采样一次；CPU 为应用进程之和，网络速率为设备接口合计。",
@@ -2533,10 +3023,9 @@ class PerformancePage(QWidget):
             ("设备 RX/s", 105), ("设备 TX/s", 105),
             ("FPS", 75), ("帧率来源", 130),
         ])
-        self.history_tree.setMinimumHeight(200)
-        history.body.addWidget(self.history_tree)
-        layout.addWidget(history)
-        layout.addStretch(1)
+        self.history_tree.setMinimumHeight(theme.PERFORMANCE_TABLE_MIN_HEIGHT)
+        history.body.addWidget(self.history_tree, 1)
+        layout.addWidget(history, 1)
 
         self.sample_timer = QTimer(self)
         self.sample_timer.setInterval(self.SAMPLE_MS)
@@ -2552,8 +3041,9 @@ class PerformancePage(QWidget):
     def _metric_card(title: str, value: str,
                      detail: str) -> tuple[Card, QLabel, QLabel]:
         card = Card(padding=theme.SPACE_4)
-        card.body.addWidget(label(title, "cardTitle"))
-        value_label = label(value, "metricValue")
+        card.setObjectName("workbenchMetric")
+        card.body.addWidget(label(title, "hint"))
+        value_label = label(value, "overviewValue")
         card.body.addWidget(value_label)
         detail_label = label(detail, "muted")
         detail_label.setWordWrap(True)
@@ -2645,6 +3135,8 @@ class PerformancePage(QWidget):
         self.uid = None
         self.previous = None
         self.history_tree.clear()
+        self.cpu_chart.clear()
+        self.memory_chart.clear()
         self.cpu_value.setText("采样中")
         self.memory_value.setText("采样中")
         self.network_value.setText("采样中")
@@ -2752,6 +3244,7 @@ class PerformancePage(QWidget):
 
     def _show_sample(self, sample: PerformanceSample) -> None:
         previous = self.previous
+        cpu: float | None = None
         if sample.process_count:
             cpu = cpu_percent(previous, sample)
             cpu_text = f"{cpu:.1f}%" if cpu is not None else "采样中"
@@ -2768,6 +3261,9 @@ class PerformancePage(QWidget):
             self.cpu_detail.setText("应用未运行")
             self.memory_value.setText("—")
             self.memory_detail.setText("应用未运行")
+        self.cpu_chart.append(cpu)
+        self.memory_chart.append(
+            sample.pss_kb / 1024 if sample.pss_kb is not None else None)
 
         rate_rx = rate_tx = None
         if (previous is not None and sample.device_rx_bytes is not None
@@ -2845,9 +3341,19 @@ class DartNetworkPage(QWidget):
         self.capture_package = ""
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(theme.SPACE_4)
+        layout.setContentsMargins(
+            theme.SPACE_5, 0, theme.SPACE_5, theme.SPACE_4)
+        layout.setSpacing(theme.SPACE_3)
+
+        self.start_button = icon_button("开始抓取", "fa6s.play", variant="primary")
+        self.start_button.clicked.connect(self.start)
+        self.stop_button = icon_button("停止", "fa6s.stop")
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop)
+        self.header_actions = header_actions(
+            self.start_button, self.stop_button)
         controls = Card(padding=theme.SPACE_4)
+        controls.setObjectName("workbenchCard")
         layout.addWidget(controls)
 
         package_row = QHBoxLayout()
@@ -2868,55 +3374,54 @@ class DartNetworkPage(QWidget):
         package_row.addWidget(refresh)
         controls.body.addLayout(package_row)
 
-        action_row = QHBoxLayout()
-        action_row.setSpacing(theme.SPACE_2)
         self.status = label("请先在设备上打开 Flutter debug/profile 应用", "muted")
         self.status.setWordWrap(True)
-        action_row.addWidget(self.status, 1)
-        self.start_button = icon_button("开始抓取", "fa6s.play", variant="primary")
-        self.start_button.clicked.connect(self.start)
-        action_row.addWidget(self.start_button)
-        self.stop_button = icon_button("停止", "fa6s.stop")
-        self.stop_button.setEnabled(False)
-        self.stop_button.clicked.connect(self.stop)
-        action_row.addWidget(self.stop_button)
-        controls.body.addLayout(action_row)
+        controls.body.addWidget(self.status)
         note = label(
             "读取 Dart VM Service 的 dart:io 请求（包含 Dio）；原生插件请求可能不在列表中。"
             "连接后只显示新请求。", "muted")
         note.setWordWrap(True)
         controls.body.addWidget(note)
 
-        results = Card(padding=theme.SPACE_4)
+        results = Card(padding=0, spacing=0)
+        results.setObjectName("workbenchCard")
+        request_panel = QWidget()
+        request_layout = QVBoxLayout(request_panel)
+        request_layout.setContentsMargins(
+            theme.SPACE_4, theme.SPACE_4,
+            theme.SPACE_3, theme.SPACE_4)
+        request_layout.setSpacing(theme.SPACE_2)
         toolbar = QHBoxLayout()
         toolbar.addWidget(label("网络请求", "cardTitle"))
         self.count_label = label("0 条请求", "muted")
         toolbar.addWidget(self.count_label)
         toolbar.addStretch(1)
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("筛选 URL、方法或状态")
-        self.search_edit.setFixedWidth(260)
-        self.search_edit.textChanged.connect(self._filter_requests)
-        toolbar.addWidget(self.search_edit)
         clear = icon_button("清空", "fa6s.eraser")
         clear.clicked.connect(self.clear_display)
         toolbar.addWidget(clear)
         export = icon_button("导出 JSON", "fa6s.file-arrow-down")
         export.clicked.connect(self.export_json)
         toolbar.addWidget(export)
-        results.body.addLayout(toolbar)
+        request_layout.addLayout(toolbar)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("筛选 URL、方法或状态")
+        self.search_edit.textChanged.connect(self._filter_requests)
+        request_layout.addWidget(self.search_edit)
 
         self.request_tree = table([
             ("状态", 62), ("方法", 68), ("请求", 220), ("耗时", 78),
         ], stretch_column=2)
         self.request_tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.request_tree.itemSelectionChanged.connect(self._selected)
-        self.request_tree.setMinimumWidth(320)
+        self.request_tree.setMinimumWidth(theme.NETWORK_REQUEST_MIN_WIDTH)
+        request_layout.addWidget(self.request_tree, 1)
 
         inspector = QFrame()
         inspector.setObjectName("networkInspector")
         inspector_layout = QVBoxLayout(inspector)
-        inspector_layout.setContentsMargins(theme.SPACE_3, 0, 0, 0)
+        inspector_layout.setContentsMargins(
+            theme.SPACE_3, theme.SPACE_4,
+            theme.SPACE_4, theme.SPACE_4)
         inspector_layout.setSpacing(theme.SPACE_2)
         self.detail_title = label("选择一条请求", "cardTitle")
         self.detail_title.setWordWrap(True)
@@ -2953,7 +3458,7 @@ class DartNetworkPage(QWidget):
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.setObjectName("networkSplitter")
-        splitter.addWidget(self.request_tree)
+        splitter.addWidget(request_panel)
         splitter.addWidget(inspector)
         splitter.setChildrenCollapsible(False)
         splitter.setSizes([430, 510])
@@ -3398,16 +3903,186 @@ class DartNetworkPage(QWidget):
         self.window.set_status(f"已导出 {len(self.requests)} 条 Dart 请求")
 
 
+# --- Device info ---------------------------------------------------------
+
+class DeviceInfoPage(QWidget):
+    SECTIONS = (
+        ("device", "设备", "设备名称和 Android 版本。"),
+        ("cpu", "CPU", "SoC 型号、核心及架构信息。"),
+        ("gpu", "GPU", "型号来自系统图形渲染器报告，部分设备不会提供。"),
+        ("storage", "ROM / 存储", "/data 是可用的内部存储分区，不等同于厂商标称容量。"),
+        ("ram", "RAM / 内存", "可用内存随设备运行变化；硬件颗粒型号通常无法通过普通 ADB 读取。"),
+    )
+
+    def __init__(self, window: "MainWindow") -> None:
+        super().__init__()
+        self.window = window
+        self.device_serial: str | None = None
+        self.loaded_serial: str | None = None
+        self.values: dict[str, dict[str, QLabel]] = {}
+        self.metric_values: dict[str, QLabel] = {}
+
+        self.refresh_button = icon_button("刷新信息", theme.ICON_REFRESH)
+        self.refresh_button.clicked.connect(self.refresh)
+        self.header_actions = header_actions(self.refresh_button)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            theme.SPACE_5, 0, theme.SPACE_5, theme.SPACE_4)
+        layout.setSpacing(theme.SPACE_3)
+        self.summary = label("选择设备后查看详细信息", "hint")
+        layout.addWidget(self.summary)
+
+        empty = parse_device_info("", "", "", "", "", "")
+        metrics = QGridLayout()
+        metrics.setSpacing(theme.SPACE_2)
+        for column, (key, title, detail) in enumerate((
+            ("cpu", "CPU", "逻辑核心"),
+            ("gpu", "GPU", "图形渲染器"),
+            ("ram", "RAM", "物理内存"),
+            ("storage", "ROM / 存储", "内部存储分区"),
+        )):
+            card = Card(padding=theme.SPACE_3, spacing=theme.SPACE_1)
+            card.setObjectName("workbenchMetric")
+            card.body.addWidget(label(title, "hint"))
+            value = label(UNKNOWN, "overviewValue")
+            value.setWordWrap(True)
+            value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            card.body.addWidget(value)
+            card.body.addWidget(label(detail, "hint"))
+            self.metric_values[key] = value
+            metrics.addWidget(card, 0, column)
+            metrics.setColumnStretch(column, 1)
+        layout.addLayout(metrics)
+
+        details = QGridLayout()
+        details.setSpacing(theme.SPACE_3)
+        section_hints = {
+            "device": "Android",
+            "cpu": "频率 / 架构",
+            "gpu": "图形能力",
+        }
+        for index, (key, title, description) in enumerate(self.SECTIONS[:3]):
+            card = Card(padding=theme.SPACE_4)
+            card.setObjectName("workbenchCard")
+            head = QHBoxLayout()
+            head.addWidget(label("设备与系统" if key == "device" else
+                                 f"{title} 详细信息", "cardTitle"))
+            head.addStretch(1)
+            hint = label(section_hints[key], "hint")
+            hint.setToolTip(description)
+            head.addWidget(hint)
+            card.body.addLayout(head)
+            rows = QGridLayout()
+            rows.setHorizontalSpacing(theme.SPACE_3)
+            rows.setVerticalSpacing(theme.SPACE_2)
+            self.values[key] = {}
+            for row, field in enumerate(getattr(empty, key)):
+                rows.addWidget(label(field, "fieldLabel"), row, 0)
+                value = label(UNKNOWN)
+                value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                value.setWordWrap(True)
+                if key == "gpu" and field == "图形 API":
+                    value.setMinimumHeight(theme.GPU_API_MIN_HEIGHT)
+                rows.addWidget(value, row, 1)
+                self.values[key][field] = value
+            rows.setColumnStretch(1, 1)
+            card.body.addLayout(rows)
+            card.body.addStretch(1)
+            details.addWidget(card, index // 2, index % 2)
+
+        memory_card = Card(padding=theme.SPACE_4)
+        memory_card.setObjectName("workbenchCard")
+        memory_card.body.addWidget(label("存储与内存", "cardTitle"))
+        for key, heading in (("storage", "ROM / 存储"),
+                             ("ram", "RAM / 内存")):
+            memory_card.body.addWidget(label(heading, "fieldLabel"))
+            rows = QGridLayout()
+            rows.setHorizontalSpacing(theme.SPACE_3)
+            rows.setVerticalSpacing(theme.SPACE_2)
+            self.values[key] = {}
+            for row, field in enumerate(getattr(empty, key)):
+                rows.addWidget(label(field, "fieldLabel"), row, 0)
+                value = label(UNKNOWN)
+                value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                value.setWordWrap(True)
+                rows.addWidget(value, row, 1)
+                self.values[key][field] = value
+            rows.setColumnStretch(1, 1)
+            memory_card.body.addLayout(rows)
+        details.addWidget(memory_card, 1, 1)
+        details.setColumnStretch(0, 1)
+        details.setColumnStretch(1, 1)
+        layout.addLayout(details)
+        layout.addStretch(1)
+
+    def device_changed(self, serial: str | None) -> None:
+        if serial == self.device_serial:
+            return
+        self.device_serial = serial
+        self.loaded_serial = None
+        self.summary.setText("点击“刷新信息”读取设备" if serial else "选择设备后查看详细信息")
+        for section in self.values.values():
+            for value in section.values():
+                value.setText(UNKNOWN)
+        for value in self.metric_values.values():
+            value.setText(UNKNOWN)
+
+    def refresh(self) -> None:
+        device = self.window.current_device()
+        if self.window.client is None or device is None or device.state != "device":
+            self.summary.setText("请先连接并选择一台已授权设备")
+            return
+        serial = device.serial
+        self.summary.setText(f"正在读取 {device.display_name}…")
+        self.refresh_button.setEnabled(False)
+
+        def done(info: DeviceInfo) -> None:
+            current = self.window.current_device()
+            if current is None or current.serial != serial:
+                return
+            for key, section in self.values.items():
+                for field, value in section.items():
+                    value.setText(getattr(info, key).get(field, UNKNOWN))
+            cores = info.cpu.get("逻辑核心", UNKNOWN)
+            self.metric_values["cpu"].setText(
+                f"{cores} 核" if cores.isdigit() else cores)
+            self.metric_values["gpu"].setText(
+                info.gpu.get("GPU / 渲染器", UNKNOWN))
+            self.metric_values["ram"].setText(
+                info.ram.get("物理内存总量", UNKNOWN))
+            self.metric_values["storage"].setText(
+                info.storage.get("内部存储总量（/data）", UNKNOWN))
+            self.loaded_serial = serial
+            self.summary.setText(f"{current.display_name} · 信息已更新")
+
+        def finished() -> None:
+            self.refresh_button.setEnabled(True)
+            current = self.window.current_device()
+            if (current is not None and current.serial != serial
+                    and self.window.pages.currentIndex() == 6):
+                self.refresh()
+            elif current is not None and current.serial == serial:
+                self.summary.setText("读取失败，请点击“刷新信息”重试")
+
+        if not self.window.submit(
+                "读取设备信息", lambda: self.window.client.device_info(serial),
+                done, finished=finished, log_result=False):
+            self.refresh_button.setEnabled(True)
+            self.summary.setText("已有任务运行，请稍后点击“刷新信息”")
+
+
 # --- Shell ---------------------------------------------------------------
 
 class MainWindow(QMainWindow):
     PAGES = (
         ("apps", "应用管理", "安装与卸载设备上的应用", theme.ICON_APPS),
-        ("shot", "屏幕截图", "把当前屏幕保存到本机", theme.ICON_SHOT),
-        ("files", "文件管理", "双击文件夹进入 · 可多选传输", theme.ICON_FILES),
-        ("logcat", "实时日志", "查看 Logcat / HiLog 与抓取崩溃文件", theme.ICON_LOG),
+        ("shot", "屏幕截图", "截取设备屏幕并管理本机保存记录", theme.ICON_SHOT),
+        ("files", "文件管理", "左右选择文件，中间执行传输", theme.ICON_FILES),
+        ("logcat", "实时日志", "筛选 Logcat / HiLog，定位应用问题", theme.ICON_LOG),
         ("performance", "性能监控", "查看应用 CPU、内存、流量与帧率", theme.ICON_PERFORMANCE),
-        ("dart_network", "Dart 网络", "抓取 Flutter debug/profile 应用的网络请求", theme.ICON_DART_NETWORK),
+        ("dart_network", "Dart 网络", "查看 Flutter debug/profile 应用的请求与响应", theme.ICON_DART_NETWORK),
+        ("device_info", "设备信息", "硬件概览与详细参数", theme.ICON_DEVICE_INFO),
     )
 
     def __init__(self) -> None:
@@ -3437,6 +4112,7 @@ class MainWindow(QMainWindow):
         workspace = QWidget()
         workspace.setObjectName("workspace")
         page_layout = QVBoxLayout(workspace)
+        self.page_layout = page_layout
         page_layout.setContentsMargins(
             theme.PAGE_PADDING, theme.PAGE_PADDING,
             theme.PAGE_PADDING, theme.PAGE_PADDING)
@@ -3444,13 +4120,24 @@ class MainWindow(QMainWindow):
 
         self.title_label = label("", "pageTitle")
         self.subtitle_label = label("", "pageSubtitle")
-        header = QVBoxLayout()
-        header.setSpacing(theme.SPACE_1)
-        header.addWidget(self.title_label)
-        header.addWidget(self.subtitle_label)
-        page_layout.addLayout(header)
-
-        page_layout.addWidget(self._device_card())
+        self.page_header = QWidget()
+        header = QVBoxLayout(self.page_header)
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(0)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(theme.SPACE_3)
+        header_text = QVBoxLayout()
+        header_text.setSpacing(theme.SPACE_1)
+        header_text.addWidget(self.title_label)
+        header_text.addWidget(self.subtitle_label)
+        header_row.addLayout(header_text, 1)
+        self.page_actions = QStackedWidget()
+        self.page_actions.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        header_row.addWidget(self.page_actions, 0, Qt.AlignTop)
+        header.addLayout(header_row)
+        self.device_card = self._device_card()
+        page_layout.addWidget(self.device_card)
+        page_layout.addWidget(self.page_header)
 
         self.apps_page = AppsPage(self)
         self.shot_page = ShotPage(self)
@@ -3458,14 +4145,26 @@ class MainWindow(QMainWindow):
         self.logcat_page = LogcatPage(self)
         self.performance_page = PerformancePage(self)
         self.dart_network_page = DartNetworkPage(self)
+        self.device_info_page = DeviceInfoPage(self)
+        for actions in (
+            QWidget(), self.shot_page.header_actions, QWidget(),
+            self.logcat_page.header_actions,
+            self.performance_page.header_actions,
+            self.dart_network_page.header_actions,
+            self.device_info_page.header_actions,
+        ):
+            self.page_actions.addWidget(actions)
         self.pages = QStackedWidget()
-        self.pages.addWidget(scrollable(self.apps_page, 620))
+        self.pages.addWidget(self.apps_page)
         self.pages.addWidget(scrollable(self.shot_page, 500))
         self.pages.addWidget(scrollable(self.files_page, 460))
         self.pages.addWidget(scrollable(self.logcat_page, 560))
         self.pages.addWidget(scrollable(self.performance_page, 620))
         self.pages.addWidget(scrollable(self.dart_network_page, 620))
+        self.pages.addWidget(scrollable(self.device_info_page, 620))
         page_layout.addWidget(self.pages, 1)
+        self.activity_card = self._activity_card()
+        page_layout.addWidget(self.activity_card)
 
         layout.addWidget(workspace, 1)
 
@@ -3489,35 +4188,104 @@ class MainWindow(QMainWindow):
 
     # -- status and log --------------------------------------------------
 
+    def _activity_card(self) -> Card:
+        card = Card(padding=theme.SPACE_4, spacing=theme.SPACE_2)
+        self.log_toggle = QPushButton()
+        self.log_toggle.setObjectName("appsLogToggle")
+        self.log_toggle.setMinimumHeight(theme.APPS_ACTIVITY_TOGGLE_HEIGHT)
+        self.log_toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.log_toggle.setCursor(Qt.PointingHandCursor)
+        self.log_toggle.clicked.connect(self._toggle_activity_log)
+        header = QHBoxLayout(self.log_toggle)
+        header.setContentsMargins(theme.SPACE_1, 0, theme.SPACE_1, 0)
+        header.setSpacing(theme.SPACE_3)
+        self.activity_title = label("活动记录", "cardTitle")
+        self.activity_title.setAttribute(Qt.WA_TransparentForMouseEvents)
+        header.addWidget(self.activity_title)
+        self.log_latest = ElidedLabel("暂无活动")
+        self.log_latest.setObjectName("hint")
+        self.log_latest.setTextFormat(Qt.PlainText)
+        self.log_latest.setMinimumWidth(0)
+        self.log_latest.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.log_latest.setAttribute(Qt.WA_TransparentForMouseEvents)
+        header.addWidget(self.log_latest, 1)
+        header.addStretch(0)
+        self.log_action_icon = QLabel()
+        self.log_action_icon.setFixedSize(theme.SPACE_4, theme.SPACE_4)
+        self.log_action_icon.setAttribute(Qt.WA_TransparentForMouseEvents)
+        header.addWidget(self.log_action_icon)
+        self.log_action = label("活动记录", "hint")
+        self.log_action.setObjectName("appsLogAction")
+        self.log_action.setAttribute(Qt.WA_TransparentForMouseEvents)
+        header.addWidget(self.log_action)
+        self.activity_header = header
+        card.body.addWidget(self.log_toggle)
+
+        self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("logView")
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(2000)
+        self.log_view.setFixedHeight(theme.ACTIVITY_LOG_HEIGHT)
+        self.log_view.hide()
+        card.body.addWidget(self.log_view)
+        self._update_activity_toggle()
+        return card
+
+    def _update_activity_toggle(self) -> None:
+        expanded = not self.log_view.isHidden()
+        action = "收起记录" if expanded else "活动记录"
+        self.log_action.setText(action)
+        self.log_action_icon.setPixmap(qta.icon(
+            "fa6s.chevron-down" if expanded else "fa6s.chevron-up",
+            color=theme.TEXT_MUTED).pixmap(theme.SPACE_4, theme.SPACE_4))
+        self.log_toggle.setAccessibleName(action)
+
+    def _toggle_activity_log(self) -> None:
+        expanded = self.log_view.isHidden()
+        self.log_view.setFixedHeight(theme.APPS_ACTIVITY_LOG_HEIGHT)
+        self.log_view.setVisible(expanded)
+        self._update_activity_toggle()
+        margins = self.activity_card.body.contentsMargins()
+        self.activity_card.body.setContentsMargins(
+            margins.left(), margins.top(), margins.right(),
+            theme.SPACE_2 if expanded else theme.SPACE_1)
+        self.activity_card.setMinimumHeight(
+            theme.APPS_ACTIVITY_EXPANDED_MIN_HEIGHT if expanded else 0)
+        if expanded:
+            self.log_view.moveCursor(QTextCursor.End)
+
     def set_status(self, text: str) -> None:
         self.status_text = text
-        if hasattr(self, "log_status"):
-            self.log_status.setText(text)
 
     def log(self, line: str) -> None:
         if self.log_view is not None:
             self.log_view.appendPlainText(line)
+        if hasattr(self, "log_latest"):
+            self.log_latest.setText(line)
 
     # -- background work -------------------------------------------------
 
     def submit(self, title: str, work: Callable[[], object],
                done: Callable[[object], None] | None = None,
                finished: Callable[[], None] | None = None,
-               log_result: bool = True) -> bool:
-        if self.busy:
+               log_result: bool = True, *, independent: bool = False) -> bool:
+        if self.busy and not independent:
             self.log(f"… {title}：已有任务进行中，请稍候")
             return False
-        self.busy = True
-        self.setCursor(Qt.WaitCursor)
+        if not independent:
+            self.busy = True
+            self.setCursor(Qt.WaitCursor)
         self.log(f"▶ {title}")
         self.set_status(f"{title}中…")
 
         def runner() -> None:
             try:
                 result = work()
-                self.events.put((True, title, result, done, finished, log_result))
+                self.events.put((True, title, result, done, finished,
+                                 log_result, independent))
             except (AdbError, OSError) as exc:
-                self.events.put((False, title, str(exc), None, finished, False))
+                self.events.put((False, title, str(exc), None, finished,
+                                 False, independent))
 
         threading.Thread(target=runner, daemon=True).start()
         return True
@@ -3525,11 +4293,13 @@ class MainWindow(QMainWindow):
     def _drain_events(self) -> None:
         while True:
             try:
-                ok, title, result, done, finished, log_result = self.events.get_nowait()
+                ok, title, result, done, finished, log_result, independent = \
+                    self.events.get_nowait()
             except queue.Empty:
                 return
-            self.busy = False
-            self.unsetCursor()
+            if not independent:
+                self.busy = False
+                self.unsetCursor()
             if finished is not None:
                 finished()
             if ok:
@@ -3553,19 +4323,25 @@ class MainWindow(QMainWindow):
 
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE_2)
-        row.addWidget(label("当前设备", "cardTitle"))
+        self.device_row = row
+        self.device_label = label("当前设备", "cardTitle")
+        row.addWidget(self.device_label)
         self.device_box = QComboBox()
         self.device_box.setMinimumWidth(180)
         self.device_box.currentIndexChanged.connect(self._device_changed)
-        row.addWidget(self.device_box, 1)
+        row.addWidget(self.device_box, 2)
         self.device_count = label("未发现设备", "accent")
         row.addWidget(self.device_count)
-        wifi = icon_button("Wi-Fi 连接", theme.ICON_WIFI)
-        wifi.clicked.connect(lambda: WifiDialog(self).exec())
-        row.addWidget(wifi)
-        refresh = icon_button("刷新设备", theme.ICON_REFRESH)
-        refresh.clicked.connect(lambda: self.refresh_devices())
-        row.addWidget(refresh)
+        row.addStretch(1)
+        self.wifi_button = icon_button("Wi-Fi 连接", theme.ICON_WIFI)
+        self.wifi_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.wifi_button.clicked.connect(lambda: WifiDialog(self).exec())
+        row.addWidget(self.wifi_button)
+        self.refresh_device_button = icon_button("刷新设备", theme.ICON_REFRESH)
+        self.refresh_device_button.setSizePolicy(
+            QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.refresh_device_button.clicked.connect(lambda: self.refresh_devices())
+        row.addWidget(self.refresh_device_button)
         card.body.addLayout(row)
         return card
 
@@ -3634,12 +4410,20 @@ class MainWindow(QMainWindow):
             device.serial if device and device.state == "device" else None)
         self.dart_network_page.device_changed(
             device.serial if device and device.state == "device" else None)
+        self.device_info_page.device_changed(
+            device.serial if device and device.state == "device" else None)
         self.apps_page._update_target_summary()
         if device is not None and device.state == "device" \
                 and self.pages.currentIndex() == 2:
             self.files_page.remote.refresh()
+        if device is not None and device.state == "device" \
+                and self.pages.currentIndex() == 6:
+            self.device_info_page.refresh()
         self.set_status(
             f"当前设备：{device.display_name}" if device else "未选择设备")
+        if (device is not None and device.state == "device"
+                and self.pages.currentIndex() == 0):
+            self.apps_page._load_packages()
 
     def install_target_devices(self) -> list[Device]:
         ready = self.ready_devices()
@@ -3667,18 +4451,73 @@ class MainWindow(QMainWindow):
     def _show_page(self, index: int) -> None:
         if self.pages.currentIndex() == 4 and index != 4:
             self.performance_page.stop()
+        navigation = self.nav_group.button(index)
+        if navigation is not None and not navigation.isChecked():
+            navigation.setChecked(True)
         self.pages.setCurrentIndex(index)
         _, title, subtitle, _ = self.PAGES[index]
+        apps = index == 0
+        self.page_actions.setCurrentIndex(index)
+        self.page_actions.setFixedWidth(
+            max(0, self.page_actions.currentWidget().sizeHint().width()))
+        self.page_layout.setContentsMargins(0, 0, 0, 0)
+        self.page_layout.setSpacing(0)
+        self.page_header.layout().setContentsMargins(
+            theme.SPACE_5, theme.SPACE_4,
+            theme.SPACE_5, theme.SPACE_3)
+        self.device_card.setObjectName("appsDeviceBar")
+        self.device_card.body.setContentsMargins(
+            theme.SPACE_5,
+            theme.SPACE_4,
+            theme.SPACE_5, theme.SPACE_2)
+        self.device_box.setMinimumWidth(
+            theme.APPS_DEVICE_SELECT_MIN_WIDTH)
+        self.device_box.setMaximumWidth(
+            theme.APPS_DEVICE_SELECT_MAX_WIDTH)
+        self.device_row.setStretch(1, 2)
+        self.device_row.setStretch(3, 1)
+        self.device_label.setObjectName("fieldLabel")
+        self.wifi_button.setText("Wi-Fi 连接")
+        self.refresh_device_button.setText("刷新设备")
+        self.activity_card.setObjectName("appsStatusBar")
+        self.log_view.setFixedHeight(theme.APPS_ACTIVITY_LOG_HEIGHT)
+        self.activity_card.body.setContentsMargins(
+            theme.SPACE_5, theme.SPACE_1, theme.SPACE_5,
+            theme.SPACE_2 if not self.log_view.isHidden() else theme.SPACE_1)
+        self.activity_card.setMinimumHeight(
+            theme.APPS_ACTIVITY_EXPANDED_MIN_HEIGHT
+            if not self.log_view.isHidden() else 0)
+        self.activity_title.setObjectName("appsActivityTitle")
+        self.activity_title.setText("● ADB")
+        self._update_activity_toggle()
+        self.title_label.setProperty("compact", True)
+        for widget in (self.device_card, self.device_label,
+                       self.activity_card, self.activity_title,
+                       self.log_toggle, self.title_label):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+        self.activity_card.setVisible(True)
         self.title_label.setText(title)
-        self.subtitle_label.setText(subtitle)
+        self.subtitle_label.setText(
+            "选择应用后，在右侧查看详情与执行操作" if apps else subtitle)
         if index == 2:
             self.files_page.remote.refresh()
+        elif (index == 0 and not self.busy
+              and self.apps_page.package_tree.topLevelItemCount() == 0):
+            device = self.current_device()
+            if device is not None and device.state == "device":
+                self.apps_page._load_packages()
         elif index == 3:
             self.logcat_page.refresh_packages()
         elif index == 4:
             self.performance_page.refresh_packages()
         elif index == 5:
             self.dart_network_page.refresh_packages()
+        elif index == 6:
+            device = self.current_device()
+            if device is not None and device.serial != self.device_info_page.loaded_serial:
+                self.device_info_page.refresh()
 
     def _sidebar(self) -> QWidget:
         sidebar = QWidget()
@@ -3708,7 +4547,8 @@ class MainWindow(QMainWindow):
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        for index, (_, title, _, icon_name) in enumerate(self.PAGES):
+        for position, index in enumerate((6, 0, 2, 1, 3, 4, 5)):
+            _, title, _, icon_name = self.PAGES[index]
             button = QPushButton(title)
             button.setObjectName("navButton")
             button.setCheckable(True)
@@ -3760,6 +4600,10 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def closeEvent(self, event) -> None:
+        monkey_process = self.apps_page.monkey_process
+        self.apps_page._stop_monkey()
+        if monkey_process is not None:
+            monkey_process.waitForFinished(1000)
         self.logcat_page.stop()
         self.performance_page.stop()
         self.dart_network_page.stop(wait=True)
@@ -3768,12 +4612,15 @@ class MainWindow(QMainWindow):
 
 def main() -> int:
     prepare_qt_plugins()
-    app = QApplication(sys.argv)
+    smoke_test = "--smoke-test" in sys.argv
+    app = QApplication([arg for arg in sys.argv if arg != "--smoke-test"])
     app.setApplicationName("Sandevistan ADB")
     app.setStyle("Fusion")
     app.setStyleSheet(load_stylesheet())
     window = MainWindow()
     window.show()
+    if smoke_test:
+        QTimer.singleShot(1500, window.close)
     return app.exec()
 
 

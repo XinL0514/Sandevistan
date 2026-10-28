@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 
-DEFAULT_HISTORY_PATH = (
-    Path.home() / "Library" / "Application Support" / "Sandevistan ADB"
-    / "screenshot_history.json"
-)
+def default_history_path() -> Path:
+    if sys.platform == "win32":
+        app_data = Path(os.environ.get(
+            "APPDATA", Path.home() / "AppData" / "Roaming"))
+        return app_data / "Sandevistan ADB" / "screenshot_history.json"
+    return (Path.home() / "Library" / "Application Support" /
+            "Sandevistan ADB" / "screenshot_history.json")
+
+
+DEFAULT_HISTORY_PATH = default_history_path()
 MAX_HISTORY_ITEMS = 200
 
 
@@ -78,9 +86,15 @@ class ScreenshotHistory:
         return entry
 
 
-def reveal_in_finder(path: Path) -> str:
+def reveal_in_file_manager(path: Path) -> str:
     if not path.is_file():
         raise FileNotFoundError(f"文件不存在，可能已移动或删除：{path}")
+    if sys.platform == "win32":
+        try:
+            subprocess.Popen(["explorer.exe", f"/select,{path}"])
+        except OSError as exc:
+            raise OSError(f"无法打开资源管理器：{exc}") from exc
+        return str(path)
     try:
         result = subprocess.run(
             ["open", "-R", str(path)], capture_output=True, text=True,

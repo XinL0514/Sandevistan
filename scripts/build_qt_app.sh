@@ -23,6 +23,26 @@ if ! "$python" -c 'import PyInstaller' 2>/dev/null; then
     "$python" -m pip install --quiet pyinstaller
 fi
 
+adb_binary="${SANDEVISTAN_ADB_BINARY:-${ADB_PATH:-$(command -v adb || true)}}"
+if [[ -z "$adb_binary" ]]; then
+    for path in /opt/homebrew/bin/adb /usr/local/bin/adb; do
+        if [[ -x "$path" ]]; then
+            adb_binary="$path"
+            break
+        fi
+    done
+fi
+if [[ -z "$adb_binary" || ! -f "$adb_binary" || ! -x "$adb_binary" ]]; then
+    print -u2 "打包需要 Android SDK Platform-Tools 的 adb；请设置 SANDEVISTAN_ADB_BINARY。"
+    exit 1
+fi
+adb_binary="$(realpath "$adb_binary")"
+if [[ ! -f "${adb_binary:h}/NOTICE.txt" || ! -f "${adb_binary:h}/source.properties" ]]; then
+    print -u2 "adb 所在目录缺少 Platform-Tools 的 NOTICE.txt 或 source.properties。"
+    exit 1
+fi
+export SANDEVISTAN_ADB_BINARY="$adb_binary"
+
 "$project_dir/scripts/fetch_lgpl_sources.sh"
 
 rm -rf build dist/"Sandevistan ADB.app" dist/"Sandevistan ADB"

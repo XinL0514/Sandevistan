@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from device_info import DeviceInfo, parse_device_info
 from performance_tools import (
     PerformanceSample, parse_device_network, parse_gfxinfo_frames,
     parse_proc_stats, parse_surface_latency, parse_surface_layers,
@@ -98,7 +100,7 @@ class CrashPullResult:
     bugreport_text: Path | None = None
 
 
-PACKAGE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+")
+PACKAGE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
 ACTIVITY_NAME = re.compile(r"\.?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*")
 
 
@@ -109,17 +111,49 @@ def validate_package_name(package: str) -> str:
     return package
 
 
+def monkey_arguments(serial: str, package: str, events: int,
+                     throttle_ms: int) -> list[str]:
+    """Build an argument-safe, package-scoped Android Monkey command."""
+    package = validate_package_name(package)
+    if not isinstance(events, int) or not 1 <= events <= 100000:
+        raise AdbError("Monkey 事件数须在 1 到 100000 之间。")
+    if not isinstance(throttle_ms, int) or not 0 <= throttle_ms <= 10000:
+        raise AdbError("Monkey 事件间隔须在 0 到 10000 毫秒之间。")
+    return ["-s", serial, "shell", "monkey", "-p", package,
+            "--throttle", str(throttle_ms), "-v", str(events)]
+
+
+def monkey_result(output: str, exit_code: int, requested: int) -> tuple[bool, str]:
+    """Treat crashes, aborts and partial runs as failures even if adb exits 0."""
+    injected = re.search(r"(?im)^Events injected:\s*(\d+)", output)
+    count = int(injected.group(1)) if injected else 0
+    if re.search(r"(?im)(?:Monkey aborted|\*\* No activities found|"
+                 r"//\s*(?:CRASH|NOT RESPONDING))", output):
+        return False, f"Monkey 中止或应用崩溃 · 已注入 {count}/{requested} 个事件"
+    if exit_code != 0:
+        return False, f"ADB 退出码 {exit_code} · 已注入 {count}/{requested} 个事件"
+    if count < requested:
+        return False, f"Monkey 未完成 · 已注入 {count}/{requested} 个事件"
+    return True, f"Monkey 测试完成 · 已注入 {count}/{requested} 个事件"
+
+
 def apk_package_name(apk: Path) -> str:
     """Read the package id before a destructive reinstall without guessing from its filename."""
     candidates = []
     found = shutil.which("aapt")
+    if found is None and sys.platform == "win32":
+        found = shutil.which("aapt.exe")
     if found:
         candidates.append(Path(found))
+    sdk_default = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+                   / "Android" / "Sdk" if sys.platform == "win32" else
+                   Path.home() / "Library" / "Android" / "sdk")
     sdk_roots = [os.environ.get("ANDROID_HOME"), os.environ.get("ANDROID_SDK_ROOT"),
-                 str(Path.home() / "Library" / "Android" / "sdk")]
+                 str(sdk_default)]
+    aapt_name = "aapt.exe" if sys.platform == "win32" else "aapt"
     for root in filter(None, sdk_roots):
         candidates.extend(sorted(
-            (Path(root) / "build-tools").glob("*/aapt"), reverse=True))
+            (Path(root) / "build-tools").glob(f"*/{aapt_name}"), reverse=True))
     executable = next((path for path in candidates if path.is_file()), None)
     if executable is None:
         raise AdbError(
@@ -241,12 +275,11 @@ def parse_meminfo_total(output: str, name: str) -> int | None:
 
 
 def parse_package_list(output: str) -> list[str]:
-    """Read third-party package identifiers from `pm list packages -3`."""
+    """Read package identifiers from `pm list packages` output."""
     return sorted({
         line.removeprefix("package:").strip()
         for line in output.splitlines()
-        if line.startswith("package:") and re.fullmatch(
-            r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)+",
+        if line.startswith("package:") and PACKAGE_NAME.fullmatch(
             line.removeprefix("package:").strip(),
         )
     })
@@ -309,7 +342,16 @@ def parse_detailed_directory(output: str, directory: str) -> list[RemoteEntry] |
 
 class AdbClient:
     def __init__(self, executable: str | None = None) -> None:
-        candidate = executable or os.environ.get("ADB_PATH") or shutil.which("adb")
+        bundled = None
+        if getattr(sys, "frozen", False):
+            bundle_root = getattr(sys, "_MEIPASS", None)
+            if bundle_root:
+                adb_name = "adb.exe" if sys.platform == "win32" else "adb"
+                path = Path(bundle_root) / "platform-tools" / adb_name
+                if path.is_file() and (sys.platform == "win32" or
+                                       os.access(path, os.X_OK)):
+                    bundled = str(path)
+        candidate = executable or bundled or os.environ.get("ADB_PATH") or shutil.which("adb")
         if not candidate:
             for path in ("/opt/homebrew/bin/adb", "/usr/local/bin/adb"):
                 if Path(path).is_file():
@@ -333,7 +375,8 @@ class AdbClient:
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise AdbError(f"无法执行 adb：{exc}") from exc
         if result.returncode != 0:
-            detail = (result.stderr or result.stdout).decode("utf-8", "replace").strip()
+            detail = b"\n".join(part for part in (result.stdout, result.stderr)
+                                if part).decode("utf-8", "replace").strip()
             raise AdbError(detail or f"adb 退出码：{result.returncode}")
         if binary:
             return result.stdout
@@ -386,21 +429,75 @@ class AdbClient:
         results = []
         for serial in serials:
             try:
-                output = self.run(serial, "install", "-r", str(apk))
-                if "Success" not in output or "Failure" in output:
-                    raise AdbError(output or "安装未返回成功结果。")
+                output = self.install_apk(serial, apk, ["-r"])
                 results.append(InstallResult(serial, True, output))
             except AdbError as exc:
                 results.append(InstallResult(serial, False, str(exc)))
         return results
 
+    def install_apk(self, serial: str, apk: Path,
+                    flags: list[str] | None = None) -> str:
+        """Install an APK and give a useful connection hint if adb exits silently."""
+        try:
+            output = self.run(serial, "install", *(flags if flags is not None else ["-r"]),
+                              str(apk))
+        except AdbError as exc:
+            if not re.fullmatch(r"adb 退出码：\d+", str(exc)):
+                raise
+            try:
+                state = self.run(serial, "get-state", timeout=5).strip()
+            except AdbError as state_exc:
+                state = f"无法确认连接状态：{state_exc}"
+            if state == "device":
+                hint = "设备仍在线，但 adb 未返回安装错误信息。请重试；若持续失败，请检查设备上的安装确认提示。"
+            else:
+                hint = f"设备连接状态：{state}。请重新连接设备并刷新列表后重试。"
+            raise AdbError(f"{exc}（安装命令无输出）\n目标设备：{serial}\n{hint}") from exc
+        if "Success" not in output or "Failure" in output:
+            raise AdbError(output or "安装未返回成功结果。")
+        return output
+
     def run(self, serial: str, *args: str, timeout: int | None = 300) -> str:
         return self._execute(["-s", serial, *args], timeout=timeout)
+
+    def is_package_installed(self, serial: str, package: str) -> bool:
+        """Check an exact package name; `pm path` may exit 1 when absent."""
+        package = validate_package_name(package)
+        output = self.run(
+            serial, "shell", "pm", "list", "packages", package, timeout=15)
+        if any(not line.startswith("package:") for line in output.splitlines()):
+            raise AdbError(f"无法确认旧版应用状态：{output}")
+        return package in parse_package_list(output)
 
     def list_user_packages(self, serial: str) -> list[str]:
         return parse_package_list(self.run(
             serial, "shell", "pm", "list", "packages", "-3", timeout=30
         ))
+
+    def list_system_packages(self, serial: str) -> list[str]:
+        return parse_package_list(self.run(
+            serial, "shell", "pm", "list", "packages", "-s", timeout=30
+        ))
+
+    def device_info(self, serial: str) -> DeviceInfo:
+        """Collect device facts without requiring root access."""
+        properties = self.run(serial, "shell", "getprop", timeout=15)
+
+        def optional(*args: str, timeout: int = 15) -> str:
+            try:
+                return self.run(serial, "shell", *args, timeout=timeout)
+            except AdbError:
+                return ""
+
+        return parse_device_info(
+            properties,
+            optional("cat", "/proc/cpuinfo"),
+            optional("dumpsys", "SurfaceFlinger", timeout=20),
+            optional("cat", "/proc/meminfo"),
+            optional("df", "-k", "/data"),
+            optional("df", "-k", "/system"),
+            optional("cat /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq"),
+        )
 
     def start_app(self, serial: str, package: str, activity: str = "") -> str:
         package = validate_package_name(package)

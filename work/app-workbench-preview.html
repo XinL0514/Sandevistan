@@ -1,0 +1,295 @@
+<style>
+  #sandevistan-preview {
+    color-scheme: light dark;
+    --ui-bg: light-dark(#f3f6f9, #121a22);
+    --ui-panel: light-dark(#ffffff, #1d2933);
+    --ui-rail: light-dark(#20313b, #101a22);
+    --ui-rail-hover: light-dark(#334b57, #273b47);
+    --ui-text: light-dark(#22313d, #edf3f7);
+    --ui-muted: light-dark(#718391, #9eb0bc);
+    --ui-line: light-dark(#dce5eb, #354652);
+    --ui-blue: light-dark(#1098d4, #53b9ed);
+    --ui-blue-soft: light-dark(#e8f6fc, #173b4d);
+    --ui-danger: light-dark(#ca3347, #ff7784);
+    --ui-danger-soft: light-dark(#fff2f3, #4a2730);
+    --ui-green: light-dark(#159a68, #62d7a3);
+    --row-h: 43px;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color: var(--ui-text);
+  }
+  #sandevistan-preview * { box-sizing: border-box; }
+  #sandevistan-preview .viz-carousel > section { min-height: 640px; }
+  #sandevistan-preview .app-window {
+    width: 100%; min-height: 602px; overflow: hidden;
+    background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px;
+    box-shadow: 0 14px 36px rgba(15, 35, 46, .12);
+  }
+  #sandevistan-preview .titlebar {
+    height: 38px; background: var(--ui-panel); border-bottom: 1px solid var(--ui-line);
+    display: flex; align-items: center; justify-content: center; position: relative;
+    font-size: 12px; font-weight: 500; letter-spacing: .01em;
+  }
+  #sandevistan-preview .traffic { position: absolute; left: 13px; display: flex; gap: 7px; }
+  #sandevistan-preview .traffic i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  #sandevistan-preview .traffic i:nth-child(1) { background: #ff6058; }
+  #sandevistan-preview .traffic i:nth-child(2) { background: #ffbd2e; }
+  #sandevistan-preview .traffic i:nth-child(3) { background: #28c941; }
+  #sandevistan-preview .app-body { display: grid; grid-template-columns: 174px minmax(0, 1fr); min-height: 564px; }
+  #sandevistan-preview .sidebar {
+    background: var(--ui-rail); color: #dbe7ee; padding: 18px 10px 12px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  #sandevistan-preview .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 21px; font-size: 12px; font-weight: 500; letter-spacing: .04em; }
+  #sandevistan-preview .brand small { display: block; color: #8ca4b1; font-size: 11px; letter-spacing: 0; font-weight: 400; }
+  #sandevistan-preview .side-group { color: #86a0ad; font-size: 11px; padding: 9px 12px 4px; }
+  #sandevistan-preview .side-item {
+    width: 100%; display: flex; align-items: center; gap: 10px; border: 0; border-radius: 7px;
+    background: transparent; color: inherit; text-align: left; padding: 9px 11px;
+    font: inherit; font-size: 12px; font-weight: 500;
+  }
+  #sandevistan-preview .side-item.active { background: var(--ui-rail-hover); color: #ffffff; }
+  #sandevistan-preview .side-item i { display: inline-flex; width: 16px; height: 16px; flex: none; }
+  #sandevistan-preview .side-bottom { margin-top: auto; padding: 7px 10px; color: #a6bcc7; font-size: 11px; }
+  #sandevistan-preview .side-bottom b { color: var(--ui-green); font-weight: 500; }
+  #sandevistan-preview .main { min-width: 0; display: flex; flex-direction: column; }
+  #sandevistan-preview .devicebar {
+    min-height: 53px; display: flex; align-items: center; gap: 10px; padding: 8px 18px;
+    background: var(--ui-panel); border-bottom: 1px solid var(--ui-line);
+  }
+  #sandevistan-preview .devicebar .context { color: var(--ui-muted); font-size: 11px; white-space: nowrap; }
+  #sandevistan-preview .device-pill {
+    display: flex; gap: 6px; align-items: center; min-width: 0; padding: 7px 10px;
+    border: 1px solid var(--ui-line); border-radius: 6px; font-size: 11px; font-weight: 500;
+    background: var(--ui-panel); color: var(--ui-text);
+  }
+  #sandevistan-preview .device-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sandevistan-preview .online { margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--ui-green); font-size: 11px; white-space: nowrap; }
+  #sandevistan-preview .online:before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  #sandevistan-preview .pane-head { padding: 18px 20px 11px; }
+  #sandevistan-preview .pane-head h2 { margin: 0; font-size: 19px; font-weight: 500; }
+  #sandevistan-preview .pane-head p { margin: 4px 0 0; font-size: 11px; color: var(--ui-muted); }
+  #sandevistan-preview .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 20px 14px; }
+  #sandevistan-preview .segment { display: inline-flex; padding: 3px; border: 1px solid var(--ui-line); border-radius: 7px; background: var(--ui-panel); }
+  #sandevistan-preview .segment button { border: 0; background: transparent; color: var(--ui-muted); border-radius: 5px; padding: 5px 10px; font: inherit; font-size: 11px; }
+  #sandevistan-preview .segment button.active { background: var(--ui-blue-soft); color: var(--ui-blue); font-weight: 500; }
+  #sandevistan-preview .searchbox { flex: 1 1 180px; max-width: 275px; min-width: 120px; position: relative; }
+  #sandevistan-preview .searchbox i { position: absolute; top: 8px; left: 9px; display: inline-flex; width: 14px; color: var(--ui-muted); }
+  #sandevistan-preview .searchbox input { width: 100%; height: 31px; padding: 5px 8px 5px 29px; border: 1px solid var(--ui-line); border-radius: 6px; background: var(--ui-panel); color: var(--ui-text); font: inherit; font-size: 11px; }
+  #sandevistan-preview .searchbox input::placeholder { color: var(--ui-muted); }
+  #sandevistan-preview .ui-button { min-height: 31px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--ui-line); border-radius: 6px; background: var(--ui-panel); color: var(--ui-text); font: inherit; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  #sandevistan-preview .ui-button i { display: inline-flex; width: 14px; height: 14px; }
+  #sandevistan-preview .ui-button.primary { background: var(--ui-blue); border-color: var(--ui-blue); color: #fff; }
+  #sandevistan-preview .ui-button.danger { color: var(--ui-danger); border-color: var(--ui-danger); background: var(--ui-danger-soft); }
+  #sandevistan-preview .ui-button:disabled { opacity: .45; }
+  #sandevistan-preview .toolbar .install { margin-left: auto; }
+  #sandevistan-preview .workspace { min-height: 380px; margin: 0 20px 14px; display: grid; grid-template-columns: minmax(230px, .91fr) minmax(280px, 1.09fr); background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 9px; overflow: hidden; }
+  #sandevistan-preview .listpane { min-width: 0; border-right: 1px solid var(--ui-line); }
+  #sandevistan-preview .listhead { min-height: 39px; display: flex; align-items: center; justify-content: space-between; padding: 10px 13px; border-bottom: 1px solid var(--ui-line); font-size: 11px; font-weight: 500; }
+  #sandevistan-preview .listhead span:last-child { color: var(--ui-muted); font-weight: 400; }
+  #sandevistan-preview .app-row { display: flex; align-items: center; gap: 9px; width: 100%; min-height: var(--row-h); padding: 7px 12px; border: 0; border-bottom: 1px solid var(--ui-line); background: transparent; color: var(--ui-text); text-align: left; font: inherit; font-size: 11px; }
+  #sandevistan-preview .app-row.active { background: var(--ui-blue-soft); }
+  #sandevistan-preview .app-row[hidden] { display: none; }
+  #sandevistan-preview .app-icon { width: 27px; height: 27px; border-radius: 6px; display: grid; place-items: center; flex: none; background: var(--ui-blue-soft); color: var(--ui-blue); font-size: 11px; font-weight: 500; }
+  #sandevistan-preview .app-row .row-text { min-width: 0; }
+  #sandevistan-preview .app-row strong { display: block; font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sandevistan-preview .app-row small { display: block; color: var(--ui-muted); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; }
+  #sandevistan-preview .detailpane { padding: 19px 20px; min-width: 0; }
+  #sandevistan-preview .detailtitle { display: flex; align-items: center; gap: 11px; padding-bottom: 16px; border-bottom: 1px solid var(--ui-line); }
+  #sandevistan-preview .detailtitle .app-icon { width: 37px; height: 37px; font-size: 14px; }
+  #sandevistan-preview .detailtitle h3 { margin: 0; font-size: 15px; font-weight: 500; }
+  #sandevistan-preview .detailtitle p { margin: 3px 0 0; color: var(--ui-muted); font-size: 11px; overflow-wrap: anywhere; }
+  #sandevistan-preview .detailtitle .tag { margin-left: auto; padding: 4px 7px; background: var(--ui-blue-soft); color: var(--ui-blue); border-radius: 5px; font-size: 11px; white-space: nowrap; }
+  #sandevistan-preview .detailmeta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px 0; font-size: 11px; }
+  #sandevistan-preview .detailmeta span { display: block; color: var(--ui-muted); font-size: 11px; margin-bottom: 3px; }
+  #sandevistan-preview .sectionlabel { margin: 9px 0 7px; color: var(--ui-muted); font-size: 11px; font-weight: 500; }
+  #sandevistan-preview .buttonrow { display: flex; gap: 7px; flex-wrap: wrap; }
+  #sandevistan-preview .detailnote { margin: 6px 0 0; font-size: 11px; color: var(--ui-muted); }
+  #sandevistan-preview .detail-divider { border-top: 1px solid var(--ui-line); margin: 14px 0; }
+  #sandevistan-preview .statusbar { margin-top: auto; min-height: 31px; border-top: 1px solid var(--ui-line); background: var(--ui-panel); display: flex; align-items: center; gap: 8px; padding: 6px 17px; color: var(--ui-muted); font-size: 11px; }
+  #sandevistan-preview .statusbar .status-message { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #sandevistan-preview .statusbar .status-ready { color: var(--ui-green); white-space: nowrap; }
+  #sandevistan-preview .statusbar button { border: 0; background: none; color: var(--ui-blue); font: inherit; font-size: 11px; }
+  #sandevistan-preview .compact-table { margin: 0 20px 11px; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 8px; overflow: hidden; }
+  #sandevistan-preview .table-head, #sandevistan-preview .table-row { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(70px, .5fr) minmax(90px, .6fr); align-items: center; gap: 10px; padding: 0 14px; }
+  #sandevistan-preview .table-head { min-height: 34px; border-bottom: 1px solid var(--ui-line); color: var(--ui-muted); font-size: 11px; }
+  #sandevistan-preview .table-row { width: 100%; min-height: var(--row-h); border: 0; border-bottom: 1px solid var(--ui-line); background: transparent; color: var(--ui-text); font: inherit; font-size: 11px; text-align: left; }
+  #sandevistan-preview .table-row:last-child { border-bottom: 0; }
+  #sandevistan-preview .table-row.active { background: var(--ui-blue-soft); }
+  #sandevistan-preview .table-row[hidden] { display: none; }
+  #sandevistan-preview .table-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sandevistan-preview .selection-strip { margin: 0 20px 14px; padding: 14px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 8px; }
+  #sandevistan-preview .selection-strip strong { font-size: 12px; font-weight: 500; }
+  #sandevistan-preview .selection-strip small { color: var(--ui-muted); font-size: 11px; }
+  #sandevistan-preview .selection-strip .strip-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  @media (max-width: 720px) {
+    #sandevistan-preview .app-body { grid-template-columns: 53px minmax(0, 1fr); }
+    #sandevistan-preview .sidebar { padding-left: 6px; padding-right: 6px; }
+    #sandevistan-preview .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+    #sandevistan-preview .brand span, #sandevistan-preview .side-group, #sandevistan-preview .side-item span, #sandevistan-preview .side-bottom { display: none; }
+    #sandevistan-preview .side-item { justify-content: center; padding: 10px; }
+    #sandevistan-preview .devicebar { padding-inline: 12px; }
+    #sandevistan-preview .pane-head { padding-inline: 12px; }
+    #sandevistan-preview .toolbar { padding-inline: 12px; }
+    #sandevistan-preview .workspace { margin-inline: 12px; grid-template-columns: minmax(0, 1fr); }
+    #sandevistan-preview .listpane { border-right: 0; border-bottom: 1px solid var(--ui-line); }
+    #sandevistan-preview .detailpane { padding: 15px; }
+    #sandevistan-preview .compact-table, #sandevistan-preview .selection-strip { margin-inline: 12px; }
+    #sandevistan-preview .viz-carousel > section { min-height: 900px; }
+  }
+  @media (max-width: 470px) {
+    #sandevistan-preview .devicebar .context, #sandevistan-preview .devicebar .online { display: none; }
+    #sandevistan-preview .searchbox { max-width: none; }
+    #sandevistan-preview .toolbar .install { margin-left: 0; }
+    #sandevistan-preview .table-head, #sandevistan-preview .table-row { grid-template-columns: minmax(0, 1fr) 68px; }
+    #sandevistan-preview .table-head span:nth-child(3), #sandevistan-preview .table-row span:nth-child(3) { display: none; }
+  }
+</style>
+
+<div id="sandevistan-preview">
+  <div class="viz-carousel" aria-label="应用管理界面方案" data-previous-label="上一个方案" data-next-label="下一个方案">
+    <section data-variant="分栏工作台" aria-label="分栏工作台方案">
+      <div class="app-window" data-mock="split">
+        <div class="titlebar"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>Sandevistan ADB</div>
+        <div class="app-body">
+          <aside class="sidebar" aria-label="工作台导航">
+            <div class="brand"><i data-lucide="smartphone" aria-hidden="true"></i><span>SANDEVISTAN<small>ADB 控制台</small></span></div>
+            <div class="side-group">工作台</div>
+            <button class="side-item" type="button"><i data-lucide="microchip" aria-hidden="true"></i><span>设备信息</span></button>
+            <button class="side-item active" type="button"><i data-lucide="package" aria-hidden="true"></i><span>应用管理</span></button>
+            <button class="side-item" type="button"><i data-lucide="folder" aria-hidden="true"></i><span>文件管理</span></button>
+            <button class="side-item" type="button"><i data-lucide="camera" aria-hidden="true"></i><span>屏幕截图</span></button>
+            <div class="side-group">诊断</div>
+            <button class="side-item" type="button"><i data-lucide="scroll-text" aria-hidden="true"></i><span>实时日志</span></button>
+            <button class="side-item" type="button"><i data-lucide="activity" aria-hidden="true"></i><span>性能监控</span></button>
+            <button class="side-item" type="button"><i data-lucide="globe" aria-hidden="true"></i><span>Dart 网络</span></button>
+            <div class="side-bottom"><b>●</b> ADB 已就绪</div>
+          </aside>
+          <div class="main">
+            <div class="devicebar"><span class="context">当前设备</span><button class="device-pill" type="button"><span>REDMI Pad 2 Pro · Wi-Fi</span><i data-lucide="chevron-down" aria-hidden="true"></i></button><span class="online">在线</span><button class="ui-button" type="button" data-action="刷新设备"><i data-lucide="refresh-cw" aria-hidden="true"></i>刷新</button></div>
+            <div class="pane-head"><h2>应用管理</h2><p>选择应用后，在右侧查看详情与执行操作</p></div>
+            <div class="toolbar"><div class="segment" aria-label="应用类型"><button class="active" type="button" data-kind="third">第三方</button><button type="button" data-kind="system">系统</button></div><label class="searchbox"><i data-lucide="search" aria-hidden="true"></i><input type="search" placeholder="搜索包名" aria-label="搜索包名"></label><button class="ui-button install" type="button" data-action="安装 APK"><i data-lucide="plus" aria-hidden="true"></i>安装 APK</button></div>
+            <div class="workspace">
+              <div class="listpane"><div class="listhead"><span>已安装应用</span><span class="list-count">55 个</span></div>
+                <button class="app-row active" type="button" data-kind="third" data-package="com.example.notes" data-name="笔记" data-version="2.4.1"><span class="app-icon">记</span><span class="row-text"><strong>笔记</strong><small>com.example.notes</small></span></button>
+                <button class="app-row" type="button" data-kind="third" data-package="com.tencent.mm" data-name="微信" data-version="8.0.62"><span class="app-icon">微</span><span class="row-text"><strong>微信</strong><small>com.tencent.mm</small></span></button>
+                <button class="app-row" type="button" data-kind="third" data-package="com.example.reader" data-name="阅读器" data-version="1.8.0"><span class="app-icon">阅</span><span class="row-text"><strong>阅读器</strong><small>com.example.reader</small></span></button>
+                <button class="app-row" type="button" data-kind="third" data-package="com.google.android.youtube" data-name="YouTube" data-version="20.1"><span class="app-icon">Y</span><span class="row-text"><strong>YouTube</strong><small>com.google.android.youtube</small></span></button>
+                <button class="app-row" type="button" data-kind="system" data-package="com.android.settings" data-name="设置" data-version="16"><span class="app-icon">设</span><span class="row-text"><strong>设置</strong><small>com.android.settings</small></span></button>
+                <button class="app-row" type="button" data-kind="system" data-package="com.android.camera2" data-name="相机" data-version="16"><span class="app-icon">相</span><span class="row-text"><strong>相机</strong><small>com.android.camera2</small></span></button>
+              </div>
+              <div class="detailpane">
+                <div class="detailtitle"><span class="app-icon detail-icon">记</span><div><h3 class="selected-name">笔记</h3><p class="selected-package">com.example.notes</p></div><span class="tag selected-kind">第三方应用</span></div>
+                <div class="detailmeta"><div><span>版本</span><strong class="selected-version">2.4.1</strong></div><div><span>设备</span><strong>REDMI Pad 2 Pro</strong></div></div>
+                <div class="sectionlabel">常用操作</div><div class="buttonrow"><button class="ui-button primary" type="button" data-action="启动应用"><i data-lucide="play" aria-hidden="true"></i>启动应用</button><button class="ui-button" type="button" data-action="强制停止">强制停止</button></div>
+                <div class="sectionlabel">检查与诊断</div><div class="buttonrow"><button class="ui-button" type="button" data-action="应用权限">应用权限</button><button class="ui-button" type="button" data-action="进程与内存">进程与内存</button><button class="ui-button" type="button" data-action="Monkey 测试">Monkey 测试</button></div>
+                <div class="detail-divider"></div><div class="sectionlabel">维护操作</div><div class="buttonrow"><button class="ui-button" type="button" data-action="清除缓存">清除缓存</button><button class="ui-button danger" type="button" data-action="清除数据">清除数据</button><button class="ui-button danger" type="button" data-action="卸载应用">卸载应用</button></div><p class="detailnote">会清除设备数据的操作集中放在这里，执行前确认。</p>
+              </div>
+            </div>
+            <div class="statusbar"><span class="status-ready">● ADB 已就绪</span><span class="status-message" aria-live="polite">读取应用列表完成 · 0.2 秒</span><button type="button" data-action="活动记录">活动记录 ›</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section data-variant="紧凑列表" aria-label="紧凑列表方案" hidden>
+      <div class="app-window" data-mock="compact">
+        <div class="titlebar"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>Sandevistan ADB</div>
+        <div class="app-body">
+          <aside class="sidebar" aria-label="工作台导航">
+            <div class="brand"><i data-lucide="smartphone" aria-hidden="true"></i><span>SANDEVISTAN<small>ADB 控制台</small></span></div>
+            <div class="side-group">工作台</div>
+            <button class="side-item" type="button"><i data-lucide="microchip" aria-hidden="true"></i><span>设备信息</span></button>
+            <button class="side-item active" type="button"><i data-lucide="package" aria-hidden="true"></i><span>应用管理</span></button>
+            <button class="side-item" type="button"><i data-lucide="folder" aria-hidden="true"></i><span>文件管理</span></button>
+            <button class="side-item" type="button"><i data-lucide="camera" aria-hidden="true"></i><span>屏幕截图</span></button>
+            <div class="side-group">诊断</div>
+            <button class="side-item" type="button"><i data-lucide="scroll-text" aria-hidden="true"></i><span>实时日志</span></button>
+            <button class="side-item" type="button"><i data-lucide="activity" aria-hidden="true"></i><span>性能监控</span></button>
+            <button class="side-item" type="button"><i data-lucide="globe" aria-hidden="true"></i><span>Dart 网络</span></button>
+            <div class="side-bottom"><b>●</b> ADB 已就绪</div>
+          </aside>
+          <div class="main">
+            <div class="devicebar"><span class="context">当前设备</span><button class="device-pill" type="button"><span>REDMI Pad 2 Pro · Wi-Fi</span><i data-lucide="chevron-down" aria-hidden="true"></i></button><span class="online">在线</span><button class="ui-button" type="button" data-action="刷新设备"><i data-lucide="refresh-cw" aria-hidden="true"></i>刷新</button></div>
+            <div class="pane-head"><h2>应用管理</h2><p>表格优先显示更多应用，选中后在下方执行操作</p></div>
+            <div class="toolbar"><div class="segment" aria-label="应用类型"><button class="active" type="button" data-kind="third">第三方</button><button type="button" data-kind="system">系统</button></div><label class="searchbox"><i data-lucide="search" aria-hidden="true"></i><input type="search" placeholder="搜索包名" aria-label="搜索包名"></label><button class="ui-button install" type="button" data-action="安装 APK"><i data-lucide="plus" aria-hidden="true"></i>安装 APK</button></div>
+            <div class="compact-table"><div class="table-head"><span>包名</span><span>类型</span><span>版本</span></div>
+              <button class="table-row active" type="button" data-kind="third" data-package="com.example.notes" data-name="笔记" data-version="2.4.1"><span>com.example.notes</span><span>第三方</span><span>2.4.1</span></button>
+              <button class="table-row" type="button" data-kind="third" data-package="com.tencent.mm" data-name="微信" data-version="8.0.62"><span>com.tencent.mm</span><span>第三方</span><span>8.0.62</span></button>
+              <button class="table-row" type="button" data-kind="third" data-package="com.example.reader" data-name="阅读器" data-version="1.8.0"><span>com.example.reader</span><span>第三方</span><span>1.8.0</span></button>
+              <button class="table-row" type="button" data-kind="third" data-package="com.google.android.youtube" data-name="YouTube" data-version="20.1"><span>com.google.android.youtube</span><span>第三方</span><span>20.1</span></button>
+              <button class="table-row" type="button" data-kind="third" data-package="com.example.music" data-name="音乐" data-version="3.2.0"><span>com.example.music</span><span>第三方</span><span>3.2.0</span></button>
+              <button class="table-row" type="button" data-kind="system" data-package="com.android.settings" data-name="设置" data-version="16"><span>com.android.settings</span><span>系统</span><span>16</span></button>
+              <button class="table-row" type="button" data-kind="system" data-package="com.android.camera2" data-name="相机" data-version="16"><span>com.android.camera2</span><span>系统</span><span>16</span></button>
+            </div>
+            <div class="selection-strip"><div><strong class="selected-name">笔记</strong><br><small class="selected-package">com.example.notes</small></div><div class="strip-actions"><button class="ui-button primary" type="button" data-action="启动应用">启动</button><button class="ui-button" type="button" data-action="应用权限">权限</button><button class="ui-button" type="button" data-action="进程与内存">进程与内存</button><button class="ui-button" type="button" data-action="更多操作">更多 ···</button></div></div>
+            <div class="statusbar"><span class="status-ready">● ADB 已就绪</span><span class="status-message" aria-live="polite">读取应用列表完成 · 0.2 秒</span><button type="button" data-action="活动记录">活动记录 ›</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  const preview = document.getElementById('sandevistan-preview');
+  function updateList(mock) {
+    const kind = mock.querySelector('.segment button.active').dataset.kind;
+    const query = mock.querySelector('.searchbox input').value.trim().toLowerCase();
+    let visible = 0;
+    mock.querySelectorAll('.app-row, .table-row').forEach(row => {
+      row.hidden = row.dataset.kind !== kind || !row.dataset.package.toLowerCase().includes(query);
+      if (!row.hidden) visible += 1;
+    });
+    const count = mock.querySelector('.list-count');
+    if (count) count.textContent = query ? `${visible} 个匹配` : `${kind === 'third' ? '55' : '128'} 个`;
+    const selected = mock.querySelector('.app-row.active, .table-row.active');
+    if (!selected || selected.hidden) {
+      if (selected) selected.classList.remove('active');
+      const first = mock.querySelector('.app-row:not([hidden]), .table-row:not([hidden])');
+      if (first) chooseRow(mock, first);
+      else {
+        mock.querySelectorAll('.selected-name').forEach(item => item.textContent = '没有匹配的应用');
+        mock.querySelectorAll('.selected-package').forEach(item => item.textContent = '调整筛选或搜索条件');
+        mock.querySelectorAll('.detailpane .ui-button, .strip-actions .ui-button').forEach(button => button.disabled = true);
+        mock.querySelector('.status-message').textContent = '没有匹配的应用';
+      }
+    }
+  }
+  function chooseRow(mock, row) {
+    mock.querySelectorAll('.app-row.active, .table-row.active').forEach(item => item.classList.remove('active'));
+    row.classList.add('active');
+    mock.querySelectorAll('.selected-name').forEach(item => item.textContent = row.dataset.name);
+    mock.querySelectorAll('.selected-package').forEach(item => item.textContent = row.dataset.package);
+    mock.querySelectorAll('.selected-version').forEach(item => item.textContent = row.dataset.version);
+    mock.querySelectorAll('.selected-kind').forEach(item => item.textContent = row.dataset.kind === 'third' ? '第三方应用' : '系统应用');
+    const icon = mock.querySelector('.detail-icon');
+    if (icon) icon.textContent = row.dataset.name.slice(0, 1);
+    mock.querySelectorAll('.detailpane .ui-button, .strip-actions .ui-button').forEach(button => button.disabled = false);
+    mock.querySelector('.status-message').textContent = `已选择 ${row.dataset.package}`;
+  }
+  preview.addEventListener('click', event => {
+    const mock = event.target.closest('[data-mock]');
+    if (!mock) return;
+    const row = event.target.closest('.app-row, .table-row');
+    if (row) return chooseRow(mock, row);
+    const kind = event.target.closest('.segment button[data-kind]');
+    if (kind) {
+      mock.querySelectorAll('.segment button').forEach(button => button.classList.toggle('active', button === kind));
+      updateList(mock);
+      return;
+    }
+    const action = event.target.closest('[data-action]');
+    if (action) mock.querySelector('.status-message').textContent = `布局预览：${action.dataset.action}`;
+  });
+  preview.addEventListener('input', event => {
+    const mock = event.target.closest('[data-mock]');
+    if (mock && event.target.matches('.searchbox input')) updateList(mock);
+  });
+  const density = { rowHeight: 43 };
+  const applyDensity = () => preview.style.setProperty('--row-h', `${density.rowHeight}px`);
+  applyDensity();
+  if (globalThis.Tweak) {
+    const controls = new Tweak({ container: preview, onChange: applyDensity });
+    controls.addSlider(density, 'rowHeight', { label: '列表行高', min: 34, max: 52, unit: 'px' });
+  }
+</script>

@@ -3,7 +3,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from screenshot_history import ScreenshotHistory, reveal_in_finder
+from screenshot_history import (
+    ScreenshotHistory, default_history_path, reveal_in_file_manager,
+)
 
 
 class ScreenshotHistoryTests(unittest.TestCase):
@@ -31,18 +33,39 @@ class ScreenshotHistoryTests(unittest.TestCase):
             storage.write_text("broken JSON", encoding="utf-8")
             self.assertEqual(ScreenshotHistory(storage).entries, [])
 
+    def test_windows_history_uses_appdata(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                patch("screenshot_history.sys.platform", "win32"), \
+                patch.dict("screenshot_history.os.environ", {"APPDATA": folder}):
+            self.assertEqual(default_history_path(),
+                             Path(folder) / "Sandevistan ADB" /
+                             "screenshot_history.json")
+
     def test_reveal_uses_finder_and_rejects_missing_file(self):
         with tempfile.TemporaryDirectory() as folder:
             screenshot = Path(folder) / "截图 1.png"
             screenshot.write_bytes(b"png")
-            with patch("screenshot_history.subprocess.run") as run:
+            with patch("screenshot_history.sys.platform", "darwin"), \
+                    patch("screenshot_history.subprocess.run") as run:
                 run.return_value.returncode = 0
-                self.assertEqual(reveal_in_finder(screenshot), str(screenshot))
+                self.assertEqual(reveal_in_file_manager(screenshot),
+                                 str(screenshot))
             self.assertEqual(run.call_args.args[0],
                              ["open", "-R", str(screenshot)])
             screenshot.unlink()
             with self.assertRaises(FileNotFoundError):
-                reveal_in_finder(screenshot)
+                reveal_in_file_manager(screenshot)
+
+    def test_reveal_uses_windows_explorer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            screenshot = Path(folder) / "截图 1.png"
+            screenshot.write_bytes(b"png")
+            with patch("screenshot_history.sys.platform", "win32"), \
+                    patch("screenshot_history.subprocess.Popen") as popen:
+                self.assertEqual(reveal_in_file_manager(screenshot),
+                                 str(screenshot))
+            popen.assert_called_once_with(
+                ["explorer.exe", f"/select,{screenshot}"])
 
 
 if __name__ == "__main__":

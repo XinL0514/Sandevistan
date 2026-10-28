@@ -1,9 +1,18 @@
+# Python and local tooling
 __pycache__/
 *.pyc
-build/
 .pytest_cache/
-dist/
 .venv/
 .pyinstaller/
+
+# Generated app bundles and build files
+build/
+dist/
+
+# Downloaded LGPL source archives and incomplete downloads
 distribution/sources/*.tar.xz
+distribution/sources/*.part
+
+# Local macOS and screenshot files
+.DS_Store
 shots/

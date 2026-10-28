@@ -34,3 +34,12 @@ codesign --verify --deep "Sandevistan ADB.app"
 此处的签名是本机 ad hoc 签名，用于测试修改过的副本；它不冒充发行者的
 Developer ID 签名。用户可以对修改版自行签名并运行。本应用不限制用户
 为调试上述 LGPL 库的修改而进行的逆向分析。
+
+## 在 Windows 上替换动态库
+
+先复制解压后的 `Sandevistan ADB` 文件夹作为测试副本。Qt、PySide6、
+Shiboken6 的 DLL 和 `.pyd` 文件位于 `_internal/` 下的对应包目录；Qt 插件
+位于 `_internal/PySide6/Qt/plugins/`。使用上述源码构建与原包 ABI 兼容的
+Windows x64 动态库，以相同文件名替换测试副本中的 DLL、`.pyd` 或插件，
+并保留其他文件。Windows 开发包没有代码签名，不限制对上述库进行替换和
+调试；修改后的副本需要自行验证能正常启动和运行。

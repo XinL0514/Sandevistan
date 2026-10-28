@@ -1,0 +1,211 @@
+<div id="sdv-other-pages">
+  <style>
+    #sdv-other-pages {
+      --sdv-ink: #1f2933;
+      --sdv-muted: #667889;
+      --sdv-line: #dfe6ed;
+      --sdv-blue: #03a9f4;
+      --sdv-blue-soft: #e1f5fe;
+      --sdv-paper: #fff;
+      --sdv-canvas: #f5f7fa;
+      --sdv-side: #263238;
+      --sdv-side-active: #374e57;
+      --sdv-green: #00b65a;
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      color: var(--sdv-ink);
+      width: 100%;
+      font-size: 13px;
+    }
+    #sdv-other-pages * { box-sizing: border-box; }
+    #sdv-other-pages button, #sdv-other-pages input, #sdv-other-pages select { font: inherit; }
+    #sdv-other-pages button { cursor: pointer; }
+    #sdv-other-pages .sdv-window { background: var(--sdv-canvas); border: 1px solid var(--sdv-line); border-radius: 12px; overflow: hidden; box-shadow: 0 16px 42px #2632381a; }
+    #sdv-other-pages .sdv-titlebar { height: 30px; background: #f9f7f6; border-bottom: 1px solid var(--sdv-line); display: flex; align-items: center; justify-content: center; font-weight: 600; position: relative; }
+    #sdv-other-pages .sdv-dots { position: absolute; left: 12px; display: flex; gap: 6px; }
+    #sdv-other-pages .sdv-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; }
+    #sdv-other-pages .sdv-dot:nth-child(2) { background: #ffbd2e; }
+    #sdv-other-pages .sdv-dot:nth-child(3) { background: #28c840; }
+    #sdv-other-pages .sdv-shell { display: grid; grid-template-columns: 172px minmax(0, 1fr); }
+    #sdv-other-pages .sdv-sidebar { background: var(--sdv-side); color: #d5e1e6; padding: 18px 12px; display: flex; flex-direction: column; min-height: 625px; }
+    #sdv-other-pages .sdv-brand { padding: 5px 7px 22px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; }
+    #sdv-other-pages .sdv-brand small { display: block; font-weight: 400; letter-spacing: 0; color: #93a8b1; }
+    #sdv-other-pages .sdv-nav-label { padding: 9px 9px 5px; color: #8fa4ad; font-size: 11px; }
+    #sdv-other-pages .sdv-nav { display: grid; gap: 3px; }
+    #sdv-other-pages .sdv-nav button { text-align: left; border: 0; border-radius: 6px; background: transparent; color: inherit; padding: 9px 10px; font-weight: 600; }
+    #sdv-other-pages .sdv-nav button[aria-current="page"] { background: var(--sdv-side-active); color: #fff; }
+    #sdv-other-pages .sdv-nav button:hover { background: #38515b; }
+    #sdv-other-pages .sdv-side-foot { margin-top: auto; padding: 15px 8px 0; color: #9eb0b8; font-size: 11px; }
+    #sdv-other-pages .sdv-side-foot strong { color: #20d672; }
+    #sdv-other-pages .sdv-main { min-width: 0; display: flex; flex-direction: column; }
+    #sdv-other-pages .sdv-devicebar { background: var(--sdv-paper); border-bottom: 1px solid var(--sdv-line); padding: 10px 17px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    #sdv-other-pages .sdv-devicebar .sdv-device { border: 1px solid #cbd7e1; border-radius: 5px; padding: 8px 10px; min-width: 240px; max-width: 420px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #sdv-other-pages .sdv-online { color: #008fd5; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    #sdv-other-pages .sdv-device-actions { display: flex; gap: 7px; margin-left: auto; }
+    #sdv-other-pages .sdv-button { border: 1px solid #cbd7e1; background: #fff; color: var(--sdv-ink); border-radius: 5px; padding: 7px 11px; min-height: 34px; font-weight: 600; white-space: nowrap; }
+    #sdv-other-pages .sdv-button:hover { background: #f0f6fa; }
+    #sdv-other-pages .sdv-button-primary { background: var(--sdv-blue); border-color: var(--sdv-blue); color: #fff; }
+    #sdv-other-pages .sdv-button-primary:hover { background: #0288d1; }
+    #sdv-other-pages .sdv-button-soft { background: var(--sdv-blue-soft); color: #007ebe; border-color: var(--sdv-blue-soft); }
+    #sdv-other-pages .sdv-content { padding: 18px; flex: 1; min-width: 0; }
+    #sdv-other-pages .sdv-content > section[hidden] { display: none; }
+    #sdv-other-pages .sdv-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+    #sdv-other-pages h2 { margin: 0 0 3px; font-size: 20px; line-height: 1.25; }
+    #sdv-other-pages h3 { margin: 0; font-size: 13px; line-height: 1.3; }
+    #sdv-other-pages p { margin: 0; color: var(--sdv-muted); }
+    #sdv-other-pages .sdv-caption { font-size: 11px; color: var(--sdv-muted); }
+    #sdv-other-pages .sdv-panel { background: var(--sdv-paper); border: 1px solid var(--sdv-line); border-radius: 7px; padding: 14px; min-width: 0; }
+    #sdv-other-pages .sdv-panel + .sdv-panel { margin-top: 11px; }
+    #sdv-other-pages .sdv-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    #sdv-other-pages .sdv-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #sdv-other-pages .sdv-grow { flex: 1; min-width: 120px; }
+    #sdv-other-pages .sdv-input { border: 1px solid #cbd7e1; background: #fff; border-radius: 5px; color: var(--sdv-ink); min-height: 34px; padding: 7px 10px; min-width: 0; }
+    #sdv-other-pages .sdv-pill { border-radius: 4px; padding: 5px 8px; background: var(--sdv-blue-soft); color: #007ebe; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    #sdv-other-pages .sdv-table { width: 100%; border-collapse: collapse; text-align: left; }
+    #sdv-other-pages .sdv-table th { color: var(--sdv-muted); font-size: 11px; font-weight: 500; border-bottom: 1px solid var(--sdv-line); padding: 7px 8px; }
+    #sdv-other-pages .sdv-table td { border-bottom: 1px solid #eef1f4; padding: 8px; }
+    #sdv-other-pages .sdv-table tr:last-child td { border-bottom: 0; }
+    #sdv-other-pages .sdv-table .sdv-selected td { background: var(--sdv-blue-soft); }
+    #sdv-other-pages .sdv-number { font-variant-numeric: tabular-nums; }
+    #sdv-other-pages .sdv-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+    #sdv-other-pages .sdv-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+    #sdv-other-pages .sdv-metric { padding: 12px 13px; background: #fff; border: 1px solid var(--sdv-line); border-radius: 7px; }
+    #sdv-other-pages .sdv-metric strong { display: block; margin: 8px 0 3px; font-size: 18px; }
+    #sdv-other-pages .sdv-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+    #sdv-other-pages .sdv-info-grid dl { display: grid; grid-template-columns: 115px minmax(0, 1fr); gap: 9px; margin: 0; }
+    #sdv-other-pages .sdv-info-grid dt { color: var(--sdv-muted); }
+    #sdv-other-pages .sdv-info-grid dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+    #sdv-other-pages .sdv-files { display: grid; grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr); gap: 8px; }
+    #sdv-other-pages .sdv-file-pane { min-height: 370px; display: flex; flex-direction: column; }
+    #sdv-other-pages .sdv-file-pane .sdv-table { margin-top: 9px; }
+    #sdv-other-pages .sdv-file-footer { margin-top: auto; border-top: 1px solid var(--sdv-line); padding-top: 10px; }
+    #sdv-other-pages .sdv-transfer { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+    #sdv-other-pages .sdv-shot-layout { display: grid; grid-template-columns: 225px minmax(0, 1fr); gap: 11px; }
+    #sdv-other-pages .sdv-preview { background: #e9f1f6; border: 1px solid var(--sdv-line); border-radius: 8px; padding: 10px; display: grid; place-items: center; min-height: 300px; }
+    #sdv-other-pages .sdv-tablet { width: 165px; height: 235px; border: 8px solid #263238; border-radius: 15px; background: linear-gradient(145deg,#7cc6ed,#af87ce 60%,#f3b986); position: relative; overflow: hidden; }
+    #sdv-other-pages .sdv-tablet:before { content: "12:48"; position: absolute; top: 12px; left: 14px; color: white; font-weight: 600; }
+    #sdv-other-pages .sdv-tablet:after { content: "◻    ◻    ◻"; position: absolute; bottom: 18px; left: 15px; color: #fff; letter-spacing: 9px; font-size: 18px; }
+    #sdv-other-pages .sdv-thumb { display: inline-block; width: 38px; height: 25px; border-radius: 3px; background: linear-gradient(130deg,#7fc6ec,#bc92d2 60%,#f2bd8c); vertical-align: middle; margin-right: 8px; }
+    #sdv-other-pages .sdv-log-filters { display: grid; grid-template-columns: 105px 95px minmax(125px,160px) minmax(130px,1fr) auto; gap: 8px; align-items: center; }
+    #sdv-other-pages .sdv-log-view { background: #f7f9fb; border: 1px solid var(--sdv-line); border-radius: 5px; padding: 9px 11px; margin-top: 11px; font: 11px/1.75 Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+    #sdv-other-pages .sdv-log-view div { display: grid; grid-template-columns: 65px 28px minmax(0,1fr); gap: 8px; border-bottom: 1px solid #e9eef2; }
+    #sdv-other-pages .sdv-log-view div:last-child { border-bottom: 0; }
+    #sdv-other-pages .sdv-log-view .sdv-warn { color: #aa7200; }
+    #sdv-other-pages .sdv-log-view .sdv-error { color: #c43749; }
+    #sdv-other-pages .sdv-chart { height: 135px; display: flex; flex-direction: column; justify-content: space-between; }
+    #sdv-other-pages .sdv-chart svg { width: 100%; height: 90px; overflow: visible; }
+    #sdv-other-pages .sdv-chart line { stroke: #dfe6ed; stroke-width: 1; }
+    #sdv-other-pages .sdv-chart polyline { fill: none; stroke: var(--sdv-blue); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    #sdv-other-pages .sdv-network { display: grid; grid-template-columns: minmax(230px, .92fr) minmax(280px, 1.08fr); gap: 0; padding: 0; }
+    #sdv-other-pages .sdv-network > div { padding: 14px; min-width: 0; }
+    #sdv-other-pages .sdv-network > div + div { border-left: 1px solid var(--sdv-line); }
+    #sdv-other-pages .sdv-request { display: grid; grid-template-columns: 42px minmax(0,1fr) 35px; gap: 7px; align-items: center; padding: 10px 7px; border-bottom: 1px solid var(--sdv-line); }
+    #sdv-other-pages .sdv-request.sdv-selected { background: var(--sdv-blue-soft); }
+    #sdv-other-pages .sdv-request small { display: block; color: var(--sdv-muted); margin-top: 3px; }
+    #sdv-other-pages .sdv-status { color: #128544; font-weight: 600; }
+    #sdv-other-pages .sdv-tabs { display: flex; gap: 12px; border-bottom: 1px solid var(--sdv-line); margin: 13px 0 8px; padding-bottom: 8px; }
+    #sdv-other-pages .sdv-tabs b { color: #008fcf; }
+    #sdv-other-pages .sdv-bottom { background: #fff; border-top: 1px solid var(--sdv-line); padding: 9px 18px; display: flex; align-items: center; justify-content: space-between; color: var(--sdv-muted); font-size: 11px; }
+    #sdv-other-pages .sdv-bottom strong { color: var(--sdv-green); }
+    @media (max-width: 740px) {
+      #sdv-other-pages .sdv-shell { display: block; }
+      #sdv-other-pages .sdv-sidebar { min-height: 0; padding: 8px; }
+      #sdv-other-pages .sdv-brand, #sdv-other-pages .sdv-nav-label, #sdv-other-pages .sdv-side-foot { display: none; }
+      #sdv-other-pages .sdv-nav { display: flex; flex-wrap: wrap; }
+      #sdv-other-pages .sdv-nav button { padding: 6px 8px; font-size: 11px; }
+      #sdv-other-pages .sdv-device-actions { margin-left: 0; }
+      #sdv-other-pages .sdv-info-grid, #sdv-other-pages .sdv-grid-4, #sdv-other-pages .sdv-grid-2, #sdv-other-pages .sdv-shot-layout, #sdv-other-pages .sdv-network { grid-template-columns: 1fr; }
+      #sdv-other-pages .sdv-files { grid-template-columns: 1fr; }
+      #sdv-other-pages .sdv-transfer { flex-direction: row; }
+      #sdv-other-pages .sdv-log-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      #sdv-other-pages .sdv-network > div + div { border-left: 0; border-top: 1px solid var(--sdv-line); }
+      #sdv-other-pages .sdv-table { font-size: 11px; }
+    }
+  </style>
+  <div class="sdv-window">
+    <div class="sdv-titlebar"><div class="sdv-dots" aria-hidden="true"><span class="sdv-dot"></span><span class="sdv-dot"></span><span class="sdv-dot"></span></div>Sandevistan ADB · 页面布局示意</div>
+    <div class="sdv-shell">
+      <aside class="sdv-sidebar">
+        <div class="sdv-brand">SANDEVISTAN<small>ADB 控制台</small></div>
+        <div class="sdv-nav-label">工作台</div>
+        <nav class="sdv-nav" aria-label="页面示意">
+          <button type="button" data-sdv-page="device" aria-current="page">设备信息</button>
+          <button type="button" data-sdv-page="files">文件管理</button>
+          <button type="button" data-sdv-page="shots">屏幕截图</button>
+          <button type="button" data-sdv-page="logs">实时日志</button>
+          <button type="button" data-sdv-page="performance">性能监控</button>
+          <button type="button" data-sdv-page="network">Dart 网络</button>
+        </nav>
+        <div class="sdv-side-foot">● <strong>ADB 已就绪</strong></div>
+      </aside>
+      <div class="sdv-main">
+        <div class="sdv-devicebar"><strong>当前设备</strong><span class="sdv-device">REDMI Pad 2 Pro · Wi-Fi · 192.168.180.157:42791</span><span class="sdv-online">1 台在线</span><div class="sdv-device-actions"><button class="sdv-button" type="button">Wi-Fi 连接</button><button class="sdv-button" type="button">刷新设备</button></div></div>
+        <main class="sdv-content">
+          <section data-sdv-screen="device">
+            <div class="sdv-heading"><div><h2>设备信息</h2><p>硬件概览与详细参数 · 数值仅作布局示意</p></div><button class="sdv-button" type="button">刷新信息</button></div>
+            <div class="sdv-grid-4">
+              <div class="sdv-metric"><span class="sdv-caption">CPU</span><strong>8 核</strong><span class="sdv-caption">SoC 型号见下方</span></div>
+              <div class="sdv-metric"><span class="sdv-caption">GPU</span><strong>型号</strong><span class="sdv-caption">驱动与图形接口</span></div>
+              <div class="sdv-metric"><span class="sdv-caption">RAM</span><strong>8 GB</strong><span class="sdv-caption">可用内存 5.2 GB</span></div>
+              <div class="sdv-metric"><span class="sdv-caption">ROM</span><strong>256 GB</strong><span class="sdv-caption">可用空间 173 GB</span></div>
+            </div>
+            <div class="sdv-info-grid" style="margin-top:11px">
+              <div class="sdv-panel"><div class="sdv-panel-head"><h3>设备与系统</h3><span class="sdv-pill">Android</span></div><dl><dt>设备型号</dt><dd>REDMI Pad 2 Pro</dd><dt>制造商</dt><dd>Xiaomi</dd><dt>Android 版本</dt><dd>以设备读取结果为准</dd><dt>连接方式</dt><dd>Wi-Fi ADB</dd></dl></div>
+              <div class="sdv-panel"><div class="sdv-panel-head"><h3>CPU 详细信息</h3><span class="sdv-caption">频率 / 架构</span></div><dl><dt>SoC 型号</dt><dd>以设备读取结果为准</dd><dt>核心配置</dt><dd>8 核 · 分组显示</dd><dt>最高频率</dt><dd>以设备读取结果为准</dd><dt>CPU ABI</dt><dd>arm64-v8a</dd></dl></div>
+              <div class="sdv-panel"><div class="sdv-panel-head"><h3>GPU 详细信息</h3><span class="sdv-caption">图形能力</span></div><dl><dt>GPU 型号</dt><dd>以设备读取结果为准</dd><dt>渲染器</dt><dd>以设备读取结果为准</dd><dt>OpenGL ES</dt><dd>以设备读取结果为准</dd><dt>Vulkan</dt><dd>以设备读取结果为准</dd></dl></div>
+              <div class="sdv-panel"><div class="sdv-panel-head"><h3>存储与内存</h3><span class="sdv-caption">容量 / 使用情况</span></div><dl><dt>RAM 总量</dt><dd>8 GB</dd><dt>RAM 已用</dt><dd>2.8 GB</dd><dt>内部存储</dt><dd>256 GB</dd><dt>可用空间</dt><dd>173 GB</dd></dl></div>
+            </div>
+          </section>
+          <section data-sdv-screen="files" hidden>
+            <div class="sdv-heading"><div><h2>文件管理</h2><p>左右选择文件，中间执行传输</p></div><span class="sdv-caption">双击文件夹进入 · 多选文件传输</span></div>
+            <div class="sdv-files">
+              <div class="sdv-panel sdv-file-pane"><div class="sdv-panel-head"><h3>本机 · Mac</h3><span class="sdv-caption">139 项</span></div><div class="sdv-row"><input class="sdv-input sdv-grow" aria-label="本机路径" value="/Users/hantongxue/Downloads"><button class="sdv-button" type="button">前往</button></div><div class="sdv-row" style="margin-top:8px"><button class="sdv-button" type="button">上级</button><button class="sdv-button" type="button">刷新</button></div><table class="sdv-table"><thead><tr><th>名称</th><th>大小</th></tr></thead><tbody><tr><td>📁 AndroidStudioProjects</td><td>—</td></tr><tr class="sdv-selected"><td>☑ demo-app.apk</td><td>28 MB</td></tr><tr><td>□ screenshot.png</td><td>2.3 MB</td></tr><tr><td>□ report.txt</td><td>14 KB</td></tr></tbody></table><div class="sdv-file-footer sdv-row"><span class="sdv-caption">已选择 1 项</span><span class="sdv-grow"></span><label class="sdv-caption"><input type="checkbox"> 显示隐藏文件</label></div></div>
+              <div class="sdv-transfer"><button class="sdv-button sdv-button-primary" type="button">上传 →</button><button class="sdv-button" type="button">← 下载</button></div>
+              <div class="sdv-panel sdv-file-pane"><div class="sdv-panel-head"><h3>设备 · REDMI Pad 2 Pro</h3><span class="sdv-caption">12 项</span></div><div class="sdv-row"><input class="sdv-input sdv-grow" aria-label="设备路径" value="/sdcard/Download"><button class="sdv-button" type="button">前往</button></div><div class="sdv-row" style="margin-top:8px"><button class="sdv-button" type="button">上级</button><button class="sdv-button" type="button">刷新</button></div><table class="sdv-table"><thead><tr><th>名称</th><th>大小</th></tr></thead><tbody><tr><td>📁 Documents</td><td>—</td></tr><tr><td>📁 Pictures</td><td>—</td></tr><tr><td>□ app-log.txt</td><td>1.2 MB</td></tr><tr><td>□ photo.jpg</td><td>3.1 MB</td></tr></tbody></table><div class="sdv-file-footer sdv-row"><button class="sdv-button" type="button">删除选中</button><span class="sdv-grow"></span><label class="sdv-caption"><input type="checkbox"> 显示隐藏文件</label></div></div>
+            </div>
+          </section>
+          <section data-sdv-screen="shots" hidden>
+            <div class="sdv-heading"><div><h2>屏幕截图</h2><p>截取设备屏幕并管理本机保存记录</p></div><button class="sdv-button sdv-button-primary" type="button">截取当前屏幕</button></div>
+            <div class="sdv-shot-layout">
+              <div class="sdv-panel"><div class="sdv-panel-head"><h3>最近一次截图</h3></div><div class="sdv-preview"><div class="sdv-tablet" role="img" aria-label="最近一次截图的布局示例"></div></div><div class="sdv-row" style="margin-top:10px"><button class="sdv-button" type="button">打开图片</button><button class="sdv-button" type="button">在 Finder 中显示</button></div></div>
+              <div class="sdv-panel"><div class="sdv-panel-head"><h3>截图历史</h3><span class="sdv-caption">5 张截图</span></div><table class="sdv-table"><thead><tr><th>文件名</th><th>保存时间</th><th>设备</th></tr></thead><tbody><tr class="sdv-selected"><td><span class="sdv-thumb"></span>截图_20261020_114907.png</td><td>10-20 11:49</td><td>REDMI Pad 2 Pro</td></tr><tr><td><span class="sdv-thumb"></span>截图_20261020_103924.png</td><td>10-20 10:39</td><td>REDMI Pad 2 Pro</td></tr><tr><td><span class="sdv-thumb"></span>sdv-shot-page-test.png</td><td>10-20 10:37</td><td>REDMI Pad 2 Pro</td></tr><tr><td><span class="sdv-thumb"></span>截图_20261019_163706.png</td><td>10-19 16:37</td><td>REDMI Pad 2 Pro</td></tr></tbody></table><div class="sdv-row" style="margin-top:14px"><span class="sdv-caption">保存位置：Downloads</span><span class="sdv-grow"></span><button class="sdv-button" type="button">更改位置</button></div></div>
+            </div>
+          </section>
+          <section data-sdv-screen="logs" hidden>
+            <div class="sdv-heading"><div><h2>实时日志</h2><p>筛选 Logcat / HiLog，定位应用问题</p></div><div class="sdv-row"><button class="sdv-button sdv-button-primary" type="button">开始</button><button class="sdv-button" type="button">停止</button></div></div>
+            <div class="sdv-panel"><div class="sdv-log-filters"><select class="sdv-input" aria-label="日志来源"><option>Logcat</option><option>HiLog</option></select><select class="sdv-input" aria-label="日志级别"><option>全部级别</option><option>警告以上</option></select><input class="sdv-input" aria-label="应用包名" value="com.example.app"><input class="sdv-input" aria-label="搜索日志" placeholder="搜索关键字 / Tag"><button class="sdv-button" type="button">选择应用</button></div><div class="sdv-log-view" role="log" aria-label="日志行示例"><div><span>13:42:07</span><b>I</b><span>ActivityTaskManager　START u0 com.example.app/.MainActivity</span></div><div><span>13:42:07</span><b>D</b><span>ExampleApp　初始化完成，耗时 84 ms</span></div><div><span>13:42:08</span><b>I</b><span>Network　GET /api/device → 200 (132 ms)</span></div><div class="sdv-warn"><span>13:42:10</span><b>W</b><span>RenderThread　Skipped 7 frames</span></div><div><span>13:42:11</span><b>D</b><span>ExampleApp　用户打开设置页面</span></div><div class="sdv-error"><span>13:42:13</span><b>E</b><span>ExampleApp　请求失败：timeout</span></div><div><span>13:42:15</span><b>I</b><span>ActivityTaskManager　Displayed com.example.app/.Settings</span></div><div><span>13:42:17</span><b>D</b><span>ExampleApp　重试请求</span></div><div><span>13:42:18</span><b>I</b><span>Network　GET /api/device → 200 (116 ms)</span></div></div><div class="sdv-row" style="margin-top:11px"><span class="sdv-caption">● 采集中 · 已显示 1,284 行</span><span class="sdv-grow"></span><button class="sdv-button" type="button">清空显示</button><button class="sdv-button" type="button">导出 TXT</button></div></div>
+            <div class="sdv-panel"><div class="sdv-panel-head"><h3>崩溃文件</h3><button class="sdv-button" type="button">抓取崩溃文件</button></div><p class="sdv-caption">保留现有崩溃文件流程，放在日志下方的独立区域。</p></div>
+          </section>
+          <section data-sdv-screen="performance" hidden>
+            <div class="sdv-heading"><div><h2>性能监控</h2><p>查看应用 CPU、内存、网络与帧率</p></div><button class="sdv-button sdv-button-primary" type="button">开始监控</button></div>
+            <div class="sdv-panel"><div class="sdv-row"><span class="sdv-caption">监控应用</span><input class="sdv-input sdv-grow" aria-label="监控应用包名" value="com.example.app"><button class="sdv-button" type="button">选择应用</button><button class="sdv-button" type="button">停止</button></div></div>
+            <div class="sdv-grid-4" style="margin-top:11px"><div class="sdv-metric"><span class="sdv-caption">CPU</span><strong>24%</strong><span class="sdv-caption">应用进程</span></div><div class="sdv-metric"><span class="sdv-caption">内存 PSS</span><strong>462 MB</strong><span class="sdv-caption">当前占用</span></div><div class="sdv-metric"><span class="sdv-caption">网络 RX / TX</span><strong>96 / 18</strong><span class="sdv-caption">KB/s</span></div><div class="sdv-metric"><span class="sdv-caption">帧率</span><strong>58 FPS</strong><span class="sdv-caption">当前画面</span></div></div>
+            <div class="sdv-grid-2" style="margin-top:11px"><div class="sdv-panel"><div class="sdv-panel-head"><h3>CPU 趋势</h3><span class="sdv-caption">最近 60 秒</span></div><div class="sdv-chart"><svg viewBox="0 0 400 90" preserveAspectRatio="none" role="img" aria-label="示意 CPU 趋势在 18% 至 34% 之间变化"><line x1="0" y1="75" x2="400" y2="75"/><line x1="0" y1="42" x2="400" y2="42"/><polyline points="0,65 24,62 48,68 72,55 96,60 120,45 144,50 168,58 192,42 216,52 240,49 264,36 288,48 312,39 336,55 360,51 384,47 400,52"/></svg><span class="sdv-caption">0　　　　　　　　　30 秒　　　　　　　　　60 秒</span></div></div><div class="sdv-panel"><div class="sdv-panel-head"><h3>内存趋势</h3><span class="sdv-caption">最近 60 秒</span></div><div class="sdv-chart"><svg viewBox="0 0 400 90" preserveAspectRatio="none" role="img" aria-label="示意内存从 410 MB 增至 462 MB"><line x1="0" y1="75" x2="400" y2="75"/><line x1="0" y1="42" x2="400" y2="42"/><polyline points="0,69 24,68 48,68 72,66 96,64 120,63 144,60 168,58 192,57 216,55 240,53 264,52 288,50 312,47 336,45 360,43 384,40 400,39"/></svg><span class="sdv-caption">0　　　　　　　　　30 秒　　　　　　　　　60 秒</span></div></div></div>
+            <div class="sdv-panel" style="margin-top:11px"><div class="sdv-panel-head"><h3>采样记录</h3><span class="sdv-caption">约每 2.5 秒采样一次 · 示意数据</span></div><table class="sdv-table"><thead><tr><th>时间</th><th>CPU</th><th>PSS</th><th>RX</th><th>TX</th><th>FPS</th></tr></thead><tbody><tr><td>13:42:20</td><td>24%</td><td>462 MB</td><td>96 KB/s</td><td>18 KB/s</td><td>58</td></tr><tr><td>13:42:17</td><td>27%</td><td>459 MB</td><td>102 KB/s</td><td>22 KB/s</td><td>59</td></tr></tbody></table></div>
+          </section>
+          <section data-sdv-screen="network" hidden>
+            <div class="sdv-heading"><div><h2>Dart 网络</h2><p>查看 Flutter debug/profile 应用的请求与响应</p></div><div class="sdv-row"><button class="sdv-button sdv-button-primary" type="button">开始抓取</button><button class="sdv-button" type="button">停止</button></div></div>
+            <div class="sdv-panel"><div class="sdv-row"><span class="sdv-caption">应用包名</span><input class="sdv-input sdv-grow" aria-label="Dart 应用包名" value="com.example.app"><button class="sdv-button" type="button">选择应用</button><span class="sdv-pill">仅 debug / profile</span></div></div>
+            <div class="sdv-panel sdv-network" style="margin-top:11px"><div><div class="sdv-panel-head"><h3>网络请求 <span class="sdv-caption">12 条</span></h3><button class="sdv-button" type="button">导出 JSON</button></div><input class="sdv-input" style="width:100%" aria-label="筛选请求" placeholder="筛选 URL、方法或状态"><div class="sdv-request sdv-selected"><strong>GET</strong><span>/api/users<small>api.example.com · 13:42:18</small></span><span class="sdv-status">200</span></div><div class="sdv-request"><strong>POST</strong><span>/api/session<small>api.example.com · 13:42:16</small></span><span class="sdv-status">201</span></div><div class="sdv-request"><strong>GET</strong><span>/api/profile<small>api.example.com · 13:42:12</small></span><span class="sdv-status">200</span></div><div class="sdv-request"><strong>GET</strong><span>/api/config<small>api.example.com · 13:42:09</small></span><span class="sdv-status">304</span></div></div><div><div class="sdv-panel-head"><h3>GET /api/users</h3><span class="sdv-pill">200 OK · 132 ms</span></div><div class="sdv-caption">https://api.example.com/api/users</div><div class="sdv-tabs"><b>概览</b><span>请求</span><span>响应</span><span>原始数据</span></div><table class="sdv-table"><tbody><tr><th>方法</th><td>GET</td></tr><tr><th>状态</th><td>200 OK</td></tr><tr><th>开始时间</th><td>13:42:18.110</td></tr><tr><th>耗时</th><td>132 ms</td></tr><tr><th>响应大小</th><td>4.8 KB</td></tr></tbody></table><div class="sdv-row" style="margin-top:13px"><button class="sdv-button" type="button">复制 URL</button><button class="sdv-button" type="button">复制请求详情</button></div></div></div>
+          </section>
+        </main>
+        <div class="sdv-bottom"><span><strong>● ADB</strong>　当前设备：REDMI Pad 2 Pro</span><span>活动记录 ▾</span></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const root = document.getElementById('sdv-other-pages');
+      const buttons = [...root.querySelectorAll('[data-sdv-page]')];
+      const screens = [...root.querySelectorAll('[data-sdv-screen]')];
+      function showPage(name) {
+        buttons.forEach(button => {
+          if (button.dataset.sdvPage === name) button.setAttribute('aria-current', 'page');
+          else button.removeAttribute('aria-current');
+        });
+        screens.forEach(screen => { screen.hidden = screen.dataset.sdvScreen !== name; });
+      }
+      buttons.forEach(button => button.addEventListener('click', () => showPage(button.dataset.sdvPage)));
+    })();
+  </script>
+</div>

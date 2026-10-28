@@ -2,8 +2,25 @@
 """PyInstaller spec for the Qt build of Sandevistan ADB."""
 
 from PyInstaller.utils.hooks import collect_all
+from pathlib import Path
+import os
+import sys
 
 VERSION = "0.11.0"
+
+adb_binary = Path(os.environ["SANDEVISTAN_ADB_BINARY"])
+adb_notice = adb_binary.parent / "NOTICE.txt"
+adb_properties = adb_binary.parent / "source.properties"
+adb_support = []
+if sys.platform == "win32":
+    if adb_binary.name.lower() != "adb.exe":
+        raise ValueError("Windows builds require platform-tools/adb.exe")
+    for name in ("AdbWinApi.dll", "AdbWinUsbApi.dll"):
+        if not (adb_binary.parent / name).is_file():
+            raise FileNotFoundError(adb_binary.parent / name)
+    adb_support = [
+        (str(path), "platform-tools") for path in adb_binary.parent.glob("*.dll")
+    ]
 
 qtawesome_datas, qtawesome_binaries, qtawesome_hiddenimports = collect_all("qtawesome")
 
@@ -43,11 +60,14 @@ def keep_bundle_entry(entry):
 a = Analysis(
     ["main_qt.py"],
     pathex=[],
-    binaries=qtawesome_binaries,
+    binaries=[*qtawesome_binaries, (str(adb_binary), "platform-tools"),
+              *adb_support],
     datas=[
         ("style.qss", "."),
         ("licenses", "licenses"),
         ("distribution/sources", "licenses/sources"),
+        (str(adb_notice), "licenses/platform-tools"),
+        (str(adb_properties), "licenses/platform-tools"),
         *qtawesome_datas,
     ],
     hiddenimports=["PySide6.QtSvg", *qtawesome_hiddenimports],
@@ -84,19 +104,20 @@ coll = COLLECT(
     name="Sandevistan ADB",
 )
 
-app = BUNDLE(
-    coll,
-    name="Sandevistan ADB.app",
-    icon=None,
-    bundle_identifier="local.sandevistan.adb",
-    info_plist={
-        "CFBundleName": "Sandevistan ADB",
-        "CFBundleDisplayName": "Sandevistan ADB",
-        "CFBundleShortVersionString": VERSION,
-        "CFBundleVersion": "20",
-        "CFBundleDevelopmentRegion": "zh_CN",
-        "NSHighResolutionCapable": True,
-        "LSMinimumSystemVersion": "12.0",
-        "NSHumanReadableCopyright": "",
-    },
-)
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="Sandevistan ADB.app",
+        icon=None,
+        bundle_identifier="local.sandevistan.adb",
+        info_plist={
+            "CFBundleName": "Sandevistan ADB",
+            "CFBundleDisplayName": "Sandevistan ADB",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": "20",
+            "CFBundleDevelopmentRegion": "zh_CN",
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "12.0",
+            "NSHumanReadableCopyright": "",
+        },
+    )

@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,11 +7,23 @@ from unittest.mock import patch
 
 from adb_client import (
     AdbClient, AdbError, Device, RemoteEntry, parse_detailed_directory, parse_devices,
-    parse_directory, parse_package_list, validate_endpoint,
+    parse_directory, parse_package_list, validate_endpoint, apk_package_name,
 )
 
 
 class DeviceParsingTests(unittest.TestCase):
+    def test_package_install_check_handles_missing_and_prefix_matches(self):
+        client = AdbClient("/usr/bin/true")
+        with patch.object(client, "run", side_effect=[
+            "", "package:com.example.app.debug", "package:com.example.app",
+        ]) as run:
+            self.assertFalse(client.is_package_installed("ABC123", "com.example.app"))
+            self.assertFalse(client.is_package_installed("ABC123", "com.example.app"))
+            self.assertTrue(client.is_package_installed("ABC123", "com.example.app"))
+        run.assert_called_with(
+            "ABC123", "shell", "pm", "list", "packages",
+            "com.example.app", timeout=15)
+
     def test_user_packages_need_only_one_package_manager_call(self):
         output = ("package:com.example.two\n"
                   "package:com.example.one\n"
@@ -24,6 +38,19 @@ class DeviceParsingTests(unittest.TestCase):
         self.assertEqual(packages, ["com.example.one", "com.example.two"])
         run.assert_called_once_with(
             "ABC123", "shell", "pm", "list", "packages", "-3", timeout=30
+        )
+
+    def test_system_packages_use_system_filter(self):
+        client = AdbClient("/usr/bin/true")
+        output = ("package:com.android.settings\n"
+                  "package:com.example.preloaded\npackage:android\n")
+        with patch.object(client, "run", return_value=output) as run:
+            packages = client.list_system_packages("ABC123")
+        self.assertEqual(packages, [
+            "android", "com.android.settings", "com.example.preloaded",
+        ])
+        run.assert_called_once_with(
+            "ABC123", "shell", "pm", "list", "packages", "-s", timeout=30
         )
 
     def test_parse_devices_and_states(self):
@@ -74,6 +101,48 @@ XYZ789 unauthorized usb:1-2 transport_id:2
         self.assertEqual(execute.call_args_list[1].args[0],
                          ["connect", "192.168.1.20:38333"])
 
+    def test_frozen_app_uses_bundled_adb_without_system_adb(self):
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Path(folder) / "platform-tools" / "adb"
+            adb.parent.mkdir()
+            adb.write_text("#!/bin/sh\nexit 0\n")
+            adb.chmod(0o755)
+            with patch("adb_client.sys.platform", "darwin"), \
+                    patch("adb_client.sys.frozen", True, create=True), \
+                    patch("adb_client.sys._MEIPASS", folder, create=True), \
+                    patch.dict("adb_client.os.environ", {}, clear=True), \
+                    patch("adb_client.shutil.which", return_value=None):
+                self.assertEqual(AdbClient().executable, str(adb))
+
+    def test_windows_frozen_app_uses_bundled_adb_exe(self):
+        with tempfile.TemporaryDirectory() as folder:
+            adb = Path(folder) / "platform-tools" / "adb.exe"
+            adb.parent.mkdir()
+            adb.write_bytes(b"placeholder")
+            with patch("adb_client.sys.platform", "win32"), \
+                    patch("adb_client.sys.frozen", True, create=True), \
+                    patch("adb_client.sys._MEIPASS", folder, create=True), \
+                    patch.dict("adb_client.os.environ", {}, clear=True), \
+                    patch("adb_client.shutil.which", return_value=None):
+                self.assertEqual(AdbClient().executable, str(adb))
+
+    def test_windows_apk_lookup_uses_sdk_aapt_exe(self):
+        with tempfile.TemporaryDirectory() as folder:
+            aapt = (Path(folder) / "Android" / "Sdk" / "build-tools" /
+                    "35.0.0" / "aapt.exe")
+            aapt.parent.mkdir(parents=True)
+            aapt.write_bytes(b"placeholder")
+            result = subprocess.CompletedProcess(
+                [], 0, b"package: name='com.example.app' versionCode='1'\n", b"")
+            with patch("adb_client.sys.platform", "win32"), \
+                    patch.dict("adb_client.os.environ", {"LOCALAPPDATA": folder},
+                               clear=True), \
+                    patch("adb_client.shutil.which", return_value=None), \
+                    patch("adb_client.subprocess.run", return_value=result) as run:
+                self.assertEqual(apk_package_name(Path("example.apk")),
+                                 "com.example.app")
+            self.assertEqual(run.call_args.args[0][0], str(aapt))
+
     def test_batch_install_continues_after_a_device_fails(self):
         client = AdbClient("/usr/bin/true")
         apk = Path("/tmp/example.apk")
@@ -87,6 +156,36 @@ XYZ789 unauthorized usb:1-2 transport_id:2
         self.assertEqual([call.args[0] for call in run.call_args_list],
                          ["A", "B", "C"])
 
+    def test_install_reports_connection_when_adb_exits_without_output(self):
+        client = AdbClient("/usr/bin/true")
+        with patch.object(client, "run", side_effect=[
+            AdbError("adb 退出码：1"), "offline",
+        ]) as run:
+            with self.assertRaisesRegex(AdbError, "offline") as error:
+                client.install_apk("192.168.1.2:5555", Path("/tmp/a.apk"))
+        self.assertIn("192.168.1.2:5555", str(error.exception))
+        self.assertEqual(run.call_args_list[1].args,
+                         ("192.168.1.2:5555", "get-state"))
+
+    def test_install_keeps_adb_failure_detail(self):
+        client = AdbClient("/usr/bin/true")
+        with patch.object(client, "run", side_effect=AdbError(
+                "Failure [INSTALL_FAILED_USER_RESTRICTED]")) as run:
+            with self.assertRaisesRegex(AdbError, "INSTALL_FAILED_USER_RESTRICTED"):
+                client.install_apk("ABC123", Path("/tmp/a.apk"))
+        run.assert_called_once()
+
+    def test_adb_failure_includes_stdout_and_stderr(self):
+        client = AdbClient("/usr/bin/true")
+        completed = subprocess.CompletedProcess(
+            [], 1, b"Failure [INSTALL_FAILED_TEST_ONLY]", b"adb: warning")
+        with patch("adb_client.subprocess.run", return_value=completed):
+            with self.assertRaises(AdbError) as error:
+                client.run("ABC123", "install", "/tmp/a.apk")
+        self.assertIn("INSTALL_FAILED_TEST_ONLY", str(error.exception))
+        self.assertIn("adb: warning", str(error.exception))
+
+    @unittest.skipIf(sys.platform == "win32", "uses a POSIX shell test stub")
     def test_screenshot_rejects_invalid_output(self):
         with tempfile.TemporaryDirectory() as folder:
             fake_adb = Path(folder) / "adb"
@@ -97,6 +196,7 @@ XYZ789 unauthorized usb:1-2 transport_id:2
                 AdbClient(str(fake_adb)).screenshot("ABC123", destination)
             self.assertFalse(destination.exists())
 
+    @unittest.skipIf(sys.platform == "win32", "uses a POSIX shell test stub")
     def test_device_serial_and_file_path_are_separate_arguments(self):
         with tempfile.TemporaryDirectory() as folder:
             fake_adb = Path(folder) / "adb"
@@ -119,6 +219,7 @@ XYZ789 unauthorized usb:1-2 transport_id:2
             ("report 1.txt", False, "/sdcard/Download/report 1.txt"),
         ])
 
+    @unittest.skipIf(sys.platform == "win32", "uses a POSIX shell test stub")
     def test_remote_directory_path_is_quoted_for_device_shell(self):
         with tempfile.TemporaryDirectory() as folder:
             fake_adb = Path(folder) / "adb"

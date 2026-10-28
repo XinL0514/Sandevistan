@@ -53,7 +53,8 @@ QPushButton#navButton {
     color: @SIDEBAR_TEXT;
     font-size: 11pt;
     font-weight: 500;
-    padding: 9px 12px;
+    min-height: 32px;
+    padding: 4px 10px;
     text-align: left;
 }
 
@@ -74,6 +75,10 @@ QLabel#pageTitle {
     font-size: @FONT_SIZE_TITLEpt;
     font-weight: 600;
     color: @TEXT;
+}
+
+QLabel#pageTitle[compact="true"] {
+    font-size: 16pt;
 }
 
 QLabel#pageSubtitle {
@@ -128,9 +133,101 @@ QFrame#card {
     border-radius: @RADIUS_CARD;
 }
 
+QFrame#workbenchCard, QFrame#workbenchMetric {
+    background: @SURFACE;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_WORKBENCH_CARD;
+}
+
+QLabel#overviewValue {
+    color: @TEXT;
+    font-size: 17pt;
+    font-weight: 600;
+}
+
+QLabel#shotPreview {
+    background: @SURFACE_SUNKEN;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_WORKBENCH_CARD;
+    color: @TEXT_MUTED;
+    padding: 8px;
+}
+
 QFrame#cardPlain {
     background: @SURFACE;
     border-radius: @RADIUS_CARD;
+}
+
+QFrame#appsDeviceBar {
+    background: @SURFACE;
+    border: none;
+    border-bottom: 1px solid @BORDER;
+    border-radius: 0;
+}
+
+QFrame#appsWorkspace {
+    background: @SURFACE;
+    border: 1px solid @BORDER;
+    border-radius: @RADIUS_CONTROL;
+}
+
+QFrame#appsPane, QScrollArea#appsDetailsScroll {
+    background: @SURFACE;
+    border: none;
+    border-radius: 0;
+}
+
+QLabel#appsDetailIcon, QLabel#appsKind {
+    background: @PRIMARY_SOFT;
+    color: @PRIMARY_TEXT;
+    border-radius: @RADIUS_CONTROL;
+}
+
+QLabel#appsKind {
+    font-size: @FONT_SIZE_SMALLpt;
+    padding: 4px 6px;
+}
+
+QFrame#appsStatusBar {
+    background: @SURFACE;
+    border: none;
+    border-top: 1px solid @BORDER;
+    border-radius: 0;
+}
+
+QLabel#appsActivityTitle {
+    color: @SUCCESS;
+    font-size: @FONT_SIZE_SMALLpt;
+    font-weight: 600;
+}
+
+QPushButton#appsLogToggle {
+    background: transparent;
+    border: none;
+    min-height: @APPS_ACTIVITY_TOGGLE_HEIGHTpx;
+    padding: 0;
+}
+
+QPushButton#appsLogToggle:hover {
+    background: @HOVER;
+}
+
+QPushButton#appsLogToggle:pressed {
+    background: @PRIMARY_SOFT;
+}
+
+QLabel#appsLogAction {
+    color: @PRIMARY_TEXT;
+    font-size: @FONT_SIZE_SMALLpt;
+    font-weight: 600;
+}
+
+QSplitter#appsSplitter::handle {
+    background: @BORDER;
+}
+
+QSplitter#appsSplitter::handle:hover {
+    background: @PRIMARY;
 }
 
 QFrame#targetDeviceRow {
@@ -314,6 +411,10 @@ QTreeWidget::item, QListWidget::item {
     border: none;
     min-height: @ROW_HEIGHTpx;
     color: @TEXT;
+}
+
+QTreeWidget#appsPackageTree::item {
+    min-height: 42px;
 }
 
 QTreeWidget::item:hover, QListWidget::item:hover {
