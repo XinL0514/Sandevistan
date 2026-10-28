@@ -57,8 +57,10 @@ def verify(app: Path) -> None:
     names = {path.name.lower() for path in internal.rglob("*")}
     if "qtwidgets.pyd" not in names or "qwindows.dll" not in names:
         raise RuntimeError("Qt Widgets or Windows platform plugin is missing")
-    if any("qtvirtualkeyboard" in name for name in names):
-        raise RuntimeError("Unused Qt Virtual Keyboard entered the bundle")
+    unexpected = sorted(name for name in names if "qtvirtualkeyboard" in name)
+    if unexpected:
+        raise RuntimeError(f"Unused Qt Virtual Keyboard entered the bundle: "
+                           f"{unexpected}")
 
     version = subprocess.run([str(adb_dir / "adb.exe"), "version"],
                              capture_output=True, text=True, timeout=15,

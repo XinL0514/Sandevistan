@@ -42,6 +42,9 @@ UNUSED_QT_PLUGINS = {
 def keep_bundle_entry(entry):
     target = entry[0].replace("\\", "/")
     source = str(entry[1]).replace("\\", "/")
+    if "qtvirtualkeyboard" in target.casefold() or \
+            "qtvirtualkeyboard" in source.casefold():
+        return False
     if target.startswith("qtawesome/fonts/"):
         return target.rsplit("/", 1)[-1] in SOLID_FONT_FILES
     # This app uses Qt Widgets; PyInstaller's broad Qt plugin discovery would
