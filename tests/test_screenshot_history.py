@@ -36,7 +36,8 @@ class ScreenshotHistoryTests(unittest.TestCase):
     def test_windows_history_uses_appdata(self):
         with tempfile.TemporaryDirectory() as folder, \
                 patch("screenshot_history.sys.platform", "win32"), \
-                patch.dict("screenshot_history.os.environ", {"APPDATA": folder}):
+                patch.dict("screenshot_history.os.environ", {"APPDATA": folder},
+                           clear=True):
             self.assertEqual(default_history_path(),
                              Path(folder) / "Sandevistan ADB" /
                              "screenshot_history.json")

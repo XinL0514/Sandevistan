@@ -13,8 +13,9 @@ from pathlib import Path
 
 def default_history_path() -> Path:
     if sys.platform == "win32":
-        app_data = Path(os.environ.get(
-            "APPDATA", Path.home() / "AppData" / "Roaming"))
+        configured = os.environ.get("APPDATA")
+        app_data = (Path(configured) if configured else
+                    Path.home() / "AppData" / "Roaming")
         return app_data / "Sandevistan ADB" / "screenshot_history.json"
     return (Path.home() / "Library" / "Application Support" /
             "Sandevistan ADB" / "screenshot_history.json")

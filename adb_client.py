@@ -145,9 +145,12 @@ def apk_package_name(apk: Path) -> str:
         found = shutil.which("aapt.exe")
     if found:
         candidates.append(Path(found))
-    sdk_default = (Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-                   / "Android" / "Sdk" if sys.platform == "win32" else
-                   Path.home() / "Library" / "Android" / "sdk")
+    if sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        sdk_default = (Path(local_app_data) if local_app_data else
+                       Path.home() / "AppData" / "Local") / "Android" / "Sdk"
+    else:
+        sdk_default = Path.home() / "Library" / "Android" / "sdk"
     sdk_roots = [os.environ.get("ANDROID_HOME"), os.environ.get("ANDROID_SDK_ROOT"),
                  str(sdk_default)]
     aapt_name = "aapt.exe" if sys.platform == "win32" else "aapt"
